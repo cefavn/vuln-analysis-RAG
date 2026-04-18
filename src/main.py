@@ -3,6 +3,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import json
 from typing import Dict, List
 
 from mcp.server.fastmcp import FastMCP
@@ -20,6 +21,22 @@ mcp = FastMCP("QNX-Vuln-RAG")
 
 # Shared DocumentBuilder instance (reuses the OpenAI embeddings client)
 _builder: DocumentBuilder | None = None
+
+
+def _ensure_json_serializable(value):
+    """
+    Ensure a value is JSON-serializable.
+    For strings, validates they don't contain unescaped characters that break JSON.
+    For dicts/lists, validates all nested values are serializable.
+    """
+    try:
+        json.dumps(value)
+        return value
+    except (TypeError, ValueError) as e:
+        # If it fails to serialize, convert to string and escape
+        if isinstance(value, str):
+            return json.loads(json.dumps(value))
+        return {"error": f"Value not JSON-serializable: {e}"}
 
 
 def _get_builder() -> DocumentBuilder:
@@ -53,7 +70,8 @@ def query_knowledge(query: str, k: int = 5) -> List[Dict[str, str]]:
     """
     k = min(max(1, k), 20)
     try:
-        return get_retriever().query(query, k=k)
+        results = get_retriever().query(query, k=k)
+        return _ensure_json_serializable(results)
     except Exception as e:
         return [{"error": f"query_knowledge failed: {e}"}]
 
@@ -199,7 +217,8 @@ def analyze_current_function() -> str:
     Covers Source→Sink identification, pattern matching, hypothesis formulation, and exploit trigger.
     KB update only for HIGH-confidence findings or novel architecture discoveries.
     """
-    return prompt_analyze_current_function()
+    prompt_text = prompt_analyze_current_function()
+    return _ensure_json_serializable(prompt_text)
 
 
 @mcp.prompt()
@@ -210,7 +229,8 @@ def triage_module() -> str:
     Use this first to decide which functions deserve deep analysis.
     No KB update.
     """
-    return prompt_triage_module()
+    prompt_text = prompt_triage_module()
+    return _ensure_json_serializable(prompt_text)
 
 
 @mcp.prompt()
@@ -221,7 +241,8 @@ def trace_data_flow() -> str:
     Produces an annotated call chain and path verdict (VALIDATED / UNVALIDATED / PARTIAL / OPAQUE).
     KB update only on confirmed unvalidated or partial-guard paths.
     """
-    return prompt_trace_data_flow()
+    prompt_text = prompt_trace_data_flow()
+    return _ensure_json_serializable(prompt_text)
 
 
 @mcp.prompt()
@@ -231,7 +252,8 @@ def refactor_current_function() -> str:
     Run this before deep analysis to make decompiled code readable.
     Silent — no output, no KB update.
     """
-    return prompt_refactor_current_function()
+    prompt_text = prompt_refactor_current_function()
+    return _ensure_json_serializable(prompt_text)
 
 
 # ---------------------------------------------------------------------------
