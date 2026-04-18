@@ -77,7 +77,13 @@ class DocumentRetriever:
             result["score"] = f"{score:.4f}"
         return result
 
-    def query(self, query: str, k: int = 5, filter: Optional[Dict] = None) -> List[Dict[str, str]]:
+    def query(
+        self,
+        query: str,
+        k: int = 5,
+        filter: Optional[Dict] = None,
+        min_score: Optional[float] = None,
+    ) -> List[Dict[str, str]]:
         """
         Return the k most relevant chunks for query.
         Optionally filter by metadata fields (e.g. filter={"type": "vulnerability_pattern"}).
@@ -85,15 +91,28 @@ class DocumentRetriever:
         kwargs: Dict = {"k": k}
         if filter:
             kwargs["filter"] = filter
+        if min_score is not None and min_score > 0:
+            scored_results = self.vectorstore.similarity_search_with_score(query, **kwargs)
+            scored_results = [(doc, score) for doc, score in scored_results if score >= min_score]
+            return [self._format(doc, i + 1) for i, (doc, _) in enumerate(scored_results)]
+
         results = self.vectorstore.similarity_search(query, **kwargs)
         return [self._format(doc, i + 1) for i, doc in enumerate(results)]
 
-    def query_with_scores(self, query: str, k: int = 5, filter: Optional[Dict] = None) -> List[Dict[str, str]]:
+    def query_with_scores(
+        self,
+        query: str,
+        k: int = 5,
+        filter: Optional[Dict] = None,
+        min_score: Optional[float] = None,
+    ) -> List[Dict[str, str]]:
         """Same as query() but includes cosine similarity scores (higher = more relevant)."""
         kwargs: Dict = {"k": k}
         if filter:
             kwargs["filter"] = filter
         results = self.vectorstore.similarity_search_with_score(query, **kwargs)
+        if min_score is not None and min_score > 0:
+            results = [(doc, score) for doc, score in results if score >= min_score]
         return [self._format(doc, i + 1, score) for i, (doc, score) in enumerate(results)]
 
     def get_db_info(self) -> Dict[str, str]:

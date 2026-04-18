@@ -20,6 +20,8 @@ openai>=1.0.0
 
 # Environment variables
 python-dotenv>=1.0.0
+PyYAML>=6.0.1
 
 # Utilities
 numpy>=1.25.0
+scipy>=1.11.0

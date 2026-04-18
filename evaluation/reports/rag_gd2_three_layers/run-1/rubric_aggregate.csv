@@ -1,0 +1,2 @@
+cases,rubric_total_weight,weighted_score_mean,weighted_score_median,weighted_score_mean_percent,attack_surface_proposed_total,attack_surface_validated_manual_total,attack_surface_validated_fuzzing_total,attack_surface_precision_manual,attack_surface_precision_fuzzing
+3,21,0.920635,0.904762,92.064,6,4,2,0.666667,0.333333

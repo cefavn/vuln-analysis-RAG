@@ -16,6 +16,7 @@ from prompts import (
     prompt_trace_data_flow,
     prompt_refactor_current_function,
 )
+from config import CONTEXT_ONLY_TYPES, RAG_MODE, RETRIEVAL_MIN_SCORE
 
 mcp = FastMCP("QNX-Vuln-RAG")
 
@@ -46,6 +47,18 @@ def _get_builder() -> DocumentBuilder:
     return _builder
 
 
+def _mode() -> str:
+    return RAG_MODE if RAG_MODE in {"gd1", "gd2"} else "gd2"
+
+
+def _no_evidence(query: str, min_score: float) -> List[Dict[str, str]]:
+    return [{
+        "status": "no_evidence",
+        "query": query,
+        "message": f"No chunks met confidence threshold (min_score={min_score}).",
+    }]
+
+
 # ---------------------------------------------------------------------------
 # RAG Query Tools
 # ---------------------------------------------------------------------------
@@ -70,7 +83,16 @@ def query_knowledge(query: str, k: int = 5) -> List[Dict[str, str]]:
     """
     k = min(max(1, k), 20)
     try:
-        results = get_retriever().query(query, k=k)
+        mode = _mode()
+        filter_obj = {"type": {"$in": CONTEXT_ONLY_TYPES}} if mode == "gd1" else None
+        results = get_retriever().query(
+            query,
+            k=k,
+            filter=filter_obj,
+            min_score=RETRIEVAL_MIN_SCORE,
+        )
+        if RETRIEVAL_MIN_SCORE > 0 and not results:
+            return _ensure_json_serializable(_no_evidence(query, RETRIEVAL_MIN_SCORE))
         return _ensure_json_serializable(results)
     except Exception as e:
         return [{"error": f"query_knowledge failed: {e}"}]
@@ -98,12 +120,21 @@ def search_vulnerability_patterns(vuln_type: str, code_context: str = "", k: int
     """
     k = min(max(1, k), 10)
     combined_query = f"{vuln_type} {code_context}".strip()
+    if _mode() == "gd1":
+        return [{
+            "status": "disabled_in_gd1",
+            "message": "search_vulnerability_patterns is disabled when RAG_MODE=gd1",
+        }]
     try:
-        return get_retriever().query_with_scores(
+        results = get_retriever().query_with_scores(
             combined_query,
             k=k,
             filter={"type": "vulnerability_pattern"},
+            min_score=RETRIEVAL_MIN_SCORE,
         )
+        if RETRIEVAL_MIN_SCORE > 0 and not results:
+            return _no_evidence(combined_query, RETRIEVAL_MIN_SCORE)
+        return results
     except Exception as e:
         return [{"error": f"search_vulnerability_patterns failed: {e}"}]
 
@@ -128,7 +159,17 @@ def search_component_context(component_name: str, extra_context: str = "", k: in
     k = min(max(1, k), 15)
     combined_query = f"{component_name} {extra_context}".strip()
     try:
-        return get_retriever().query_with_scores(combined_query, k=k)
+        mode = _mode()
+        filter_obj = {"type": {"$in": CONTEXT_ONLY_TYPES}} if mode == "gd1" else None
+        results = get_retriever().query_with_scores(
+            combined_query,
+            k=k,
+            filter=filter_obj,
+            min_score=RETRIEVAL_MIN_SCORE,
+        )
+        if RETRIEVAL_MIN_SCORE > 0 and not results:
+            return _no_evidence(combined_query, RETRIEVAL_MIN_SCORE)
+        return results
     except Exception as e:
         return [{"error": f"search_component_context failed: {e}"}]
 
@@ -148,7 +189,17 @@ def query_knowledge_with_scores(query: str, k: int = 5) -> List[Dict[str, str]]:
     """
     k = min(max(1, k), 20)
     try:
-        return get_retriever().query_with_scores(query, k=k)
+        mode = _mode()
+        filter_obj = {"type": {"$in": CONTEXT_ONLY_TYPES}} if mode == "gd1" else None
+        results = get_retriever().query_with_scores(
+            query,
+            k=k,
+            filter=filter_obj,
+            min_score=RETRIEVAL_MIN_SCORE,
+        )
+        if RETRIEVAL_MIN_SCORE > 0 and not results:
+            return _no_evidence(query, RETRIEVAL_MIN_SCORE)
+        return results
     except Exception as e:
         return [{"error": f"query_knowledge_with_scores failed: {e}"}]
 
@@ -201,7 +252,10 @@ def get_knowledge_info() -> Dict[str, str]:
     an analysis session.
     """
     try:
-        return get_retriever().get_db_info()
+        info = get_retriever().get_db_info()
+        info["rag_mode"] = _mode()
+        info["retrieval_min_score"] = str(RETRIEVAL_MIN_SCORE)
+        return info
     except Exception as e:
         return {"status": "error", "message": str(e)}
 

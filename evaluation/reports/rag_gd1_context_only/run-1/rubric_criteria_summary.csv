@@ -1,0 +1,11 @@
+criterion,weight,mean,median
+c1_context_correct,1,1.0,1.0
+c2_identify_source,2,0.5,0.5
+c3_trace_source_to_sink,3,0.333333,0.5
+c4_vuln_hypothesis,3,0.333333,0.5
+c5_root_cause_explanation,2,0.333333,0.5
+c6_correct_location,2,0.333333,0.5
+c7_pattern_or_cve_reference,2,0.0,0.0
+c8_trigger_and_poc_concept,2,0.0,0.0
+c9_impact_classification,2,0.333333,0.5
+c10_low_false_positive,2,0.333333,0.5

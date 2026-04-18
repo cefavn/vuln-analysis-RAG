@@ -1,0 +1,3 @@
+case_id,system_id,run_id,weighted_score,weighted_score_percent,verdict,rationale
+qnx-vdev-shmem-001,rag_gd1_context_only,run-1,0.585714,58.571,partially_supported,mock smoke-test result
+qnx-virtio-net-003,rag_gd1_context_only,run-1,0.585714,58.571,partially_supported,mock smoke-test result

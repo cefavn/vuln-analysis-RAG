@@ -11,6 +11,30 @@ TESSERACT_PATH: str = os.getenv("TESSERACT_PATH", "/usr/bin/tesseract")
 
 EMBEDDING_MODEL: str = "text-embedding-3-small"
 
+# Runtime mode for fair A/B comparison:
+# - gd1: context-only retrieval (no vulnerability-pattern lookup)
+# - gd2: full 3-layer retrieval workflow
+RAG_MODE: str = os.getenv("RAG_MODE", "gd2").strip().lower()
+
+# Optional retrieval confidence gate. 0.0 disables score filtering.
+RETRIEVAL_MIN_SCORE: float = float(os.getenv("RETRIEVAL_MIN_SCORE", "0.0"))
+
+# Context-only document types used by GĐ1 baseline mode.
+CONTEXT_ONLY_TYPES = [
+	"reference_document",
+	"c_overview",
+	"c_constants",
+	"c_struct",
+	"c_function",
+	"c_section",
+	"build_config",
+	"build_image",
+	"build_script",
+	"build_section",
+	"build_suid",
+	"build_hypervisor",
+]
+
 # Parent chunk: max size before splitting into children.
 # A Markdown section larger than this gets child-split.
 CHUNK_SIZE: int = 1000

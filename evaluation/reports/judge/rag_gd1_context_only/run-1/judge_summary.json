@@ -1,0 +1,127 @@
+{
+  "meta": {
+    "system_id": "rag_gd1_context_only",
+    "run_id": "run-1",
+    "judge_results_path": "evaluation/tmp/judge_results_gd1.from_yaml.jsonl",
+    "rubric_path": "evaluation/templates/judge_rubric.template.yaml",
+    "tool": "evaluation.aggregate_judge_results"
+  },
+  "aggregate": {
+    "cases": 2,
+    "rubric_total_weight": 21.0,
+    "weighted_score_mean": 0.585714,
+    "weighted_score_median": 0.585714,
+    "weighted_score_mean_percent": 58.571,
+    "attack_surface_proposed_total": 4,
+    "attack_surface_validated_manual_total": 2,
+    "attack_surface_validated_fuzzing_total": 0,
+    "attack_surface_precision_manual": 0.5,
+    "attack_surface_precision_fuzzing": 0.0
+  },
+  "criteria_summary": {
+    "c1_context_correct": {
+      "weight": 1.0,
+      "mean": 0.7,
+      "median": 0.7
+    },
+    "c2_identify_source": {
+      "weight": 2.0,
+      "mean": 0.6,
+      "median": 0.6
+    },
+    "c3_trace_source_to_sink": {
+      "weight": 3.0,
+      "mean": 0.6,
+      "median": 0.6
+    },
+    "c4_vuln_hypothesis": {
+      "weight": 3.0,
+      "mean": 0.6,
+      "median": 0.6
+    },
+    "c5_root_cause_explanation": {
+      "weight": 2.0,
+      "mean": 0.6,
+      "median": 0.6
+    },
+    "c6_correct_location": {
+      "weight": 2.0,
+      "mean": 0.6,
+      "median": 0.6
+    },
+    "c7_pattern_or_cve_reference": {
+      "weight": 2.0,
+      "mean": 0.5,
+      "median": 0.5
+    },
+    "c8_trigger_and_poc_concept": {
+      "weight": 2.0,
+      "mean": 0.5,
+      "median": 0.5
+    },
+    "c9_impact_classification": {
+      "weight": 2.0,
+      "mean": 0.6,
+      "median": 0.6
+    },
+    "c10_low_false_positive": {
+      "weight": 2.0,
+      "mean": 0.6,
+      "median": 0.6
+    }
+  },
+  "cases": [
+    {
+      "case_id": "qnx-vdev-shmem-001",
+      "system_id": "rag_gd1_context_only",
+      "run_id": "run-1",
+      "weighted_score": 0.585714,
+      "weighted_score_percent": 58.571,
+      "criteria": {
+        "c1_context_correct": 0.7,
+        "c2_identify_source": 0.6,
+        "c3_trace_source_to_sink": 0.6,
+        "c4_vuln_hypothesis": 0.6,
+        "c5_root_cause_explanation": 0.6,
+        "c6_correct_location": 0.6,
+        "c7_pattern_or_cve_reference": 0.5,
+        "c8_trigger_and_poc_concept": 0.5,
+        "c9_impact_classification": 0.6,
+        "c10_low_false_positive": 0.6
+      },
+      "attack_surface": {
+        "proposed": 2,
+        "validated_manual": 1,
+        "validated_fuzzing": 0
+      },
+      "verdict": "partially_supported",
+      "rationale": "mock smoke-test result"
+    },
+    {
+      "case_id": "qnx-virtio-net-003",
+      "system_id": "rag_gd1_context_only",
+      "run_id": "run-1",
+      "weighted_score": 0.585714,
+      "weighted_score_percent": 58.571,
+      "criteria": {
+        "c1_context_correct": 0.7,
+        "c2_identify_source": 0.6,
+        "c3_trace_source_to_sink": 0.6,
+        "c4_vuln_hypothesis": 0.6,
+        "c5_root_cause_explanation": 0.6,
+        "c6_correct_location": 0.6,
+        "c7_pattern_or_cve_reference": 0.5,
+        "c8_trigger_and_poc_concept": 0.5,
+        "c9_impact_classification": 0.6,
+        "c10_low_false_positive": 0.6
+      },
+      "attack_surface": {
+        "proposed": 2,
+        "validated_manual": 1,
+        "validated_fuzzing": 0
+      },
+      "verdict": "partially_supported",
+      "rationale": "mock smoke-test result"
+    }
+  ]
+}

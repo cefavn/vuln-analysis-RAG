@@ -26,8 +26,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import json
 import re
 import hashlib
+from datetime import datetime, timezone
 from statistics import median
 from typing import Any, Dict, List, Optional, Tuple
+from uuid import uuid4
 
 import fitz  # PyMuPDF
 import pytesseract
@@ -71,9 +73,38 @@ _ATOMIC_TYPES = frozenset({
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_id(source: str, page: int, chunk_id: int) -> str:
-    """Deterministic, collision-resistant chunk ID."""
-    return hashlib.sha256(f"{source}-{page}-{chunk_id}".encode()).hexdigest()
+def _normalize_ws(text: str) -> str:
+    """Normalize whitespace so semantically identical content keeps stable IDs."""
+    return " ".join((text or "").split())
+
+
+def _content_hash(text: str) -> str:
+    return hashlib.sha256(_normalize_ws(text).encode()).hexdigest()
+
+
+def _make_vector_id(doc: Document) -> str:
+    """
+    Build a stable vector ID from semantic metadata + normalized content hash.
+    This keeps IDs stable across re-ingestion and prevents random reindex churn.
+    """
+    meta = doc.metadata or {}
+    source = str(meta.get("source", "unknown"))
+    page = str(meta.get("page", 0))
+    doc_type = str(meta.get("type", "unknown"))
+    section = str(meta.get("section", ""))
+    doc_id = str(meta.get("doc_id", ""))
+    symbol = str(
+        meta.get("function_name")
+        or meta.get("struct_name")
+        or meta.get("block_name")
+        or meta.get("section_name")
+        or ""
+    )
+    entry_id = str(meta.get("entry_id", ""))
+    content = _content_hash(doc.page_content or "")
+
+    key = "|".join([source, page, doc_type, section, doc_id, symbol, entry_id, content])
+    return hashlib.sha256(key.encode()).hexdigest()
 
 
 def _section_path(meta: Dict) -> str:
@@ -955,11 +986,11 @@ class DocumentBuilder:
         Split one large Markdown section into child chunks.
         Each child stores the full parent section text for context retrieval.
         """
-        parent_id = _make_id(
-            base_meta.get("source", ""),
-            base_meta.get("page", 0),
-            abs(hash(section_meta.get("section", "") + str(base_meta.get("page", 0)))) % 1_000_000,
+        parent_seed = (
+            f"{base_meta.get('source', '')}|{base_meta.get('page', 0)}|"
+            f"{section_meta.get('section', '')}"
         )
+        parent_id = hashlib.sha256(parent_seed.encode()).hexdigest()
         # Truncate to Pinecone metadata limit (40 KB total per vector; conservative cap)
         parent_stored = section_text[:PARENT_CONTENT_MAX]
 
@@ -1074,15 +1105,26 @@ class DocumentBuilder:
         if not splits:
             raise ValueError("No chunks produced from documents.")
 
+        # Keep re-index idempotent by clearing vectors from sources that are being rebuilt.
+        sources_to_refresh = sorted({
+            str(d.metadata.get("source", "")).strip()
+            for d in all_docs
+            if str(d.metadata.get("source", "")).strip()
+        })
+        if sources_to_refresh:
+            cleaner = PineconeVectorStore(index_name=self.index_name, embedding=self.embeddings)
+            refreshed = 0
+            for source in sources_to_refresh:
+                try:
+                    cleaner.delete(filter={"source": {"$eq": source}})
+                    refreshed += 1
+                except Exception as e:
+                    print(f"  [WARN] Could not clear old vectors for source '{source}': {e}")
+            if refreshed:
+                print(f"  Refreshed {refreshed} source(s) before upsert")
+
         print(f"\n[3/3] Embedding and upserting {len(splits)} chunks to '{self.index_name}'...")
-        ids = [
-            _make_id(
-                doc.metadata.get("source", "unknown"),
-                doc.metadata.get("page", 0),
-                doc.metadata.get("chunk_id", i),
-            )
-            for i, doc in enumerate(splits)
-        ]
+        ids = [_make_vector_id(doc) for doc in splits]
 
         vectorstore = PineconeVectorStore.from_documents(
             documents=splits,
@@ -1108,11 +1150,14 @@ class DocumentBuilder:
         if not text_content or not text_content.strip():
             return {"status": "error", "message": "Text content is empty."}
         try:
+            entry_id = str((metadata or {}).get("entry_id") or uuid4().hex)
             base_meta = {
                 "source": source_name,
                 "file_name": source_name,
                 "type": "analysis_result",
                 "page": 0,
+                "entry_id": entry_id,
+                "created_at_utc": datetime.now(timezone.utc).isoformat(),
             }
             if metadata:
                 base_meta.update(metadata)
@@ -1124,14 +1169,7 @@ class DocumentBuilder:
                 chunk.metadata.setdefault("chunk_id", i)
                 chunk.metadata.setdefault("text_length", len(chunk.page_content))
 
-            ids = [
-                _make_id(
-                    chunk.metadata.get("source", source_name),
-                    chunk.metadata.get("page", 0),
-                    chunk.metadata.get("chunk_id", i),
-                )
-                for i, chunk in enumerate(chunks)
-            ]
+            ids = [_make_vector_id(chunk) for chunk in chunks]
 
             vectorstore = PineconeVectorStore(
                 index_name=self.index_name,
@@ -1144,6 +1182,7 @@ class DocumentBuilder:
                 "message": f"Added {len(chunks)} chunk(s) from '{source_name}'",
                 "chunks_added": str(len(chunks)),
                 "source": source_name,
+                "entry_id": entry_id,
             }
         except Exception as e:
             return {"status": "error", "message": f"Failed to add: {e}"}

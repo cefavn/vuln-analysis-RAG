@@ -11,6 +11,17 @@ A Model Context Protocol (MCP) server that provides Retrieval-Augmented Generati
 - **Docker Support**: Easy deployment with containerization
 - **Smart Document Processing**: Automatic chunking, heading detection, and OCR for PDFs
 
+## Evaluation and Benchmarking
+
+This repository includes a semantic benchmark toolkit under `evaluation/` using an LLM-as-judge pipeline for GĐ1 vs GĐ2 comparison.
+
+See:
+- `evaluation/README.md` for detailed step-by-step benchmark instructions
+- `evaluation/templates/bug_intake.template.yaml` to curate bug cases from Internet sources
+- `evaluation/build_eval_bundle_from_intake.py` to generate analysis input + ground truth
+- `evaluation/build_judge_packets.py` and `evaluation/aggregate_judge_results.py` for judge scoring pipeline
+- `evaluation/judge_compare.py` for paired A/B statistical comparison
+
 ## Requirements
 
 - Docker Desktop

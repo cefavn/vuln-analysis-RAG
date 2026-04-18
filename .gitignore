@@ -2,7 +2,9 @@ __pycache__/
 .env
 *.pyc
 *.pyo
+.venv/
 venv/
 .DS_Store
 rag_docs/
 .claude/
+RAG-gd1/

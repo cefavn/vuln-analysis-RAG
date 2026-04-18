@@ -1,0 +1,4 @@
+case_id,weighted_score,weighted_score_percent,c1_context_correct,c2_identify_source,c3_trace_source_to_sink,c4_vuln_hypothesis,c5_root_cause_explanation,c6_correct_location,c7_pattern_or_cve_reference,c8_trigger_and_poc_concept,c9_impact_classification,c10_low_false_positive,attack_surface_proposed,attack_surface_validated_manual,attack_surface_validated_fuzzing,notes
+qnx-vdev-shmem-001,0.952381,95.238,1.0,1.0,1.0,1.0,1.0,1.0,1.0,0.5,1.0,1.0,3,2,1,Strong evidence-backed reasoning.
+qnx-vdev-shmem-002,0.904762,90.476,1.0,1.0,1.0,1.0,0.5,1.0,1.0,0.5,1.0,1.0,2,1,1,Good coverage with one partial criterion.
+qnx-virtio-net-003,0.904762,90.476,1.0,1.0,1.0,1.0,1.0,1.0,0.5,0.5,1.0,1.0,1,1,0,Correct abstain with low FP.

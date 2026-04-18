@@ -1,0 +1,49 @@
+cases:
+  - case_id: qnx-vdev-shmem-001
+    title: Unvalidated guest length into memcpy path
+    component: vdev-shmem
+    tags: [buffer_overflow, positive, qnx, ivc]
+    prompt: Analyze function vdshmem_vwrite with focus on guest-controlled length and memcpy usage.
+    analysis_context: |
+      Target binary: qvm
+      Trust boundary: guest-controlled shared memory input into host-side copy operations.
+      Focus: validate source->sink path and check bound validation before memcpy.
+    source_code: |
+      // Paste source/decompiled snippet to analyze here.
+      ssize_t vdshmem_vwrite(...) {
+          // ...
+      }
+    ground_truth:
+      has_vulnerability: true
+      vulnerabilities:
+        - vuln_id: CVE-YYYY-XXXXX
+          vuln_type: buffer_overflow
+          severity: HIGH
+          min_impact: DoS (local)
+          location_keywords: [vdshmem_vwrite, memcpy, guest_len]
+          evidence_keywords: [guest-controlled, length, bounds]
+          source_fields: [guest_len]
+          sink_ops: ["memcpy(dst, src, guest_len)"]
+          root_cause: Missing upper-bound validation on guest-controlled length before copy.
+          trigger_concept: Oversized guest_len reaches memcpy unchanged.
+    references:
+      - https://nvd.nist.gov/vuln/detail/CVE-YYYY-XXXXX
+      - https://vendor.example/security/advisory
+    notes: Positive control case with explicit source->sink evidence.
+
+  - case_id: qnx-virtio-net-003
+    title: All guest inputs validated before sink
+    component: vdev-virtio-net
+    tags: [negative, validation, qnx, ivc]
+    prompt: Assess whether guest descriptor fields are validated before packet copy.
+    analysis_context: |
+      Target binary: qvm
+      Focus: check whether guest descriptor lengths are clamped and validated before use.
+    source_code: |
+      // Paste source/decompiled snippet to analyze here.
+    ground_truth:
+      has_vulnerability: false
+      vulnerabilities: []
+    references:
+      - https://vendor.example/docs/validation-behavior
+    notes: Negative control case.
