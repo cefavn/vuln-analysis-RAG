@@ -1,2 +1,0 @@
-delta_detection_accuracy,delta_finding_f1,delta_grounding_rate,delta_hallucination_rate,delta_case_score_10_mean,mcnemar_b,mcnemar_c,mcnemar_p_value_exact,score_test_method,score_test_p_value,score_test_median_diff,score_test_mean_diff
-0.666667,0.6,0.0,-0.666667,6.666667,2,0,0.5,wilcoxon,0.5,10.0,10.0

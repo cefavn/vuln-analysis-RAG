@@ -1,2 +1,0 @@
-cases,finding_tp,finding_fp,finding_fn,finding_precision,finding_recall,finding_f1,detection_accuracy,type_accuracy,grounding_rate,hallucination_rate,citation_coverage,abstentions,abstention_accuracy,elapsed_ms_mean,elapsed_ms_median,first_correct_ms_median,impact_match_rate,case_score_10_mean,case_score_10_median
-3,2,0,0,1.0,1.0,1.0,1.0,1.0,1.0,0.0,1.0,1,1.0,15113.3333,16430.0,9000.0,1.0,10.0,10.0

@@ -1,4 +1,0 @@
-case_id,weighted_score,weighted_score_percent,c1_context_correct,c2_identify_source,c3_trace_source_to_sink,c4_vuln_hypothesis,c5_root_cause_explanation,c6_correct_location,c7_pattern_or_cve_reference,c8_trigger_and_poc_concept,c9_impact_classification,c10_low_false_positive,attack_surface_proposed,attack_surface_validated_manual,attack_surface_validated_fuzzing,notes
-qnx-vdev-shmem-001,0.428571,42.857,1.0,0.5,0.5,0.5,0.5,0.5,0.0,0.0,0.5,0.5,2,1,0,Config A tends to miss pattern-supported exploit path.
-qnx-vdev-shmem-002,0.357143,35.714,1.0,0.5,0.0,0.5,0.5,0.5,0.0,0.0,0.5,0.5,1,0,0,Partial reasoning only.
-qnx-virtio-net-003,0.166667,16.667,1.0,0.5,0.5,0.0,0.0,0.0,0.0,0.0,0.0,0.0,2,0,0,False positives on negative case.

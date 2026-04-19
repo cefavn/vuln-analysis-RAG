@@ -1,0 +1,44 @@
+{
+  "case_id": "qnx-libc-calloc-001",
+  "abstained": false,
+  "findings": [
+    {
+      "vuln_type": "Integer Overflow leading to Heap Buffer Overflow",
+      "location": "calloc() – line: total = nmemb * size",
+      "confidence": "HIGH",
+      "impact": "Undersized heap allocation returned to caller; subsequent memcpy in process_packet() writes attacker-controlled payload beyond allocated buffer bounds, enabling heap corruption, potential arbitrary code execution, or denial of service.",
+      "evidence": [
+        "No overflow guard (e.g., __builtin_mul_overflow or equivalent check) exists before `total = nmemb * size` in calloc().",
+        "On 32-bit targets: nmemb=0x10000, size=0x10001 yields 0x100010000 which truncates to 0x10000 after size_t wrap — malloc receives a small buffer.",
+        "memset(ptr, 0, total) operates on the wrapped (small) total, so only the undersized region is zeroed — no immediate detection.",
+        "In process_packet(), memcpy(buf, payload, (size_t)item_count * item_size) recomputes the pre-wrap product independently, writing the full intended size into the undersized buffer.",
+        "Both item_count and item_size are explicitly noted as originating from an untrusted network packet, establishing attacker control over both calloc() arguments.",
+        "The returned pointer is used without re-validation of actual allocated size against the intended copy length before the memcpy call."
+      ]
+    },
+    {
+      "vuln_type": "Heap Buffer Overflow via memcpy with attacker-controlled length",
+      "location": "process_packet() – line: memcpy(buf, payload, (size_t)item_count * item_size)",
+      "confidence": "HIGH",
+      "impact": "Attacker-controlled payload bytes written beyond the end of the heap allocation; adjacent heap metadata or object data corrupted, enabling heap exploitation primitives (e.g., unsafe unlink, tcache poisoning) depending on allocator implementation.",
+      "evidence": [
+        "memcpy length is independently recalculated as item_count * item_size without referencing the actual allocation size returned by calloc().",
+        "Because calloc() returned a buffer sized to the wrapped (small) total, the memcpy length exceeds the valid buffer boundary by up to (true_product - wrapped_total) bytes.",
+        "payload is sourced directly from network input with no visible length cap or sanitization prior to the memcpy call.",
+        "No bounds check between buf allocation and memcpy call validates that the copy length fits within the allocated region."
+      ]
+    },
+    {
+      "vuln_type": "Missing Input Validation on Untrusted Size Parameters",
+      "location": "process_packet() – parameters item_count, item_size received from network packet",
+      "confidence": "HIGH",
+      "impact": "Root cause enabler: absence of upper-bound validation on attacker-controlled dimensions allows the integer overflow and subsequent overflow to be triggered remotely without authentication.",
+      "evidence": [
+        "Code comment explicitly states: 'Both item_count and item_size originate from untrusted packet.'",
+        "No visible sanitization, clamping, or maximum-value check is applied to item_count or item_size before passing them to calloc().",
+        "Tags include 'remote_exploitable', corroborating that the trust boundary is a network-facing service interface."
+      ]
+    }
+  ],
+  "reasoning_summary": "calloc() performs an unchecked multiplication of two attacker-controlled size_t values, allowing integer wraparound to produce an undersized allocation on both 32-bit and 64-bit targets (threshold differs). The caller process_packet() independently recomputes the true (pre-wrap) product as the memcpy length, writing that full length into the undersized heap buffer. This two-step mismatch — small allocation, large copy — constitutes a classic BadAlloc heap overflow. All three findings are HIGH confidence because the vulnerable code path, the absence of any overflow guard, and the untrusted input source are all directly visible in the provided code."
+}

@@ -18,5 +18,5 @@ if [[ -n "${RETRIEVAL_MIN_SCORE:-}" ]]; then
 fi
 
 docker run "${DOCKER_ARGS[@]}" \
-  rag-mcp-server:latest \
+  rag-mcp-gd2:latest \
   python -u /app/main.py

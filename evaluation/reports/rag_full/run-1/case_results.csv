@@ -1,4 +1,0 @@
-case_id,has_vulnerability_gt,predicted_findings,tp,fp,fn,detection_correct,type_correct,grounded_match_count,matched_count,hallucinated_findings,citation_present_count,abstained,abstain_correct,elapsed_ms,first_correct_ms,impact_match_count,case_score_10
-qnx-vdev-shmem-001,True,1,1,0,0,True,True,1,1,0,1,False,True,16430.0,8100.0,1,10.0
-qnx-vdev-shmem-002,True,1,1,0,0,True,True,1,1,0,1,False,True,17890.0,9900.0,1,10.0
-qnx-virtio-net-003,False,0,0,0,0,True,True,0,0,0,0,True,True,11020.0,,0,10.0

@@ -52,7 +52,7 @@ TESSERACT_PATH=/usr/bin/tesseract
 ### 2. Build Docker Image
 
 ```bash
-docker build -t rag-mcp-server:latest .
+docker build -t rag-mcp-gd2:latest .
 ```
 
 ### 3. Build Vector Database (Optional - Initial Setup Only)
@@ -293,20 +293,7 @@ docker run --rm -i --env-file .env rag-mcp-server:latest python -u /app/main.py
 
 ## Project Structure
 
-```
-ragmcpserver/
-├── src/
-│   ├── main.py           # FastMCP server and tool definitions
-│   ├── builder.py        # Vector database construction from documents
-│   ├── retriever.py      # Pinecone query and retrieval interface
-│   ├── config.py         # Environment and configuration management
-│   └── prompts.py        # MCP prompt templates for analysis
-├── rag_docs/             # Document storage (PDFs, TXT, JSON)
-├── requirements.txt      # Python dependencies
-├── Dockerfile            # Docker image definition
-├── .env.example          # Environment variables template
-└── README.md             # This file
-```
+(missing)
 
 ## API Reference
 

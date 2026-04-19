@@ -1,2 +1,0 @@
-delta_weighted_score_mean,delta_weighted_score_mean_percent,delta_attack_surface_precision_manual,delta_attack_surface_precision_fuzzing,paired_test_method,paired_test_p_value,paired_test_median_diff,paired_test_mean_diff
-0.1,10.0,0.0,0.0,wilcoxon,0.5,0.1,0.1

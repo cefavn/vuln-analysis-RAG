@@ -1,0 +1,24 @@
+{
+  "case_id": "qnx-libc-calloc-001",
+  "system_id": "gd1",
+  "run_id": "run_20260418_2236",
+  "criteria": {
+    "c1_context_correct": 1.0,
+    "c2_identify_source": 1.0,
+    "c3_trace_source_to_sink": 1.0,
+    "c4_vuln_hypothesis": 1.0,
+    "c5_root_cause_explanation": 1.0,
+    "c6_correct_location": 1.0,
+    "c7_pattern_or_cve_reference": 1.0,
+    "c8_trigger_and_poc_concept": 1.0,
+    "c9_impact_classification": 1.0,
+    "c10_low_false_positive": 1.0
+  },
+  "attack_surface": {
+    "proposed": 1,
+    "validated_manual": 0,
+    "validated_fuzzing": 0
+  },
+  "verdict": "supported",
+  "rationale": "The analysis correctly identifies the 'BadAlloc' vulnerability pattern where an integer overflow in calloc() leads to an undersized heap allocation, which is subsequently overflowed by a memcpy using the non-wrapped size. It accurately identifies the source (untrusted network packet), provides precise locations, and includes a clear PoC concept with specific triggering values."
+}

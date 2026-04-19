@@ -8,3 +8,5 @@ venv/
 rag_docs/
 .claude/
 RAG-gd1/
+run-result/
+diagrams/
