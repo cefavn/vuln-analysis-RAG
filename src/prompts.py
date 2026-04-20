@@ -9,63 +9,32 @@
 
 def prompt_analyze_current_function() -> str:
     """
-    Full 6-step vulnerability analysis on the currently selected function.
-    Follows the system prompt workflow exactly.
-    KB update: only for HIGH-confidence findings or novel architecture discoveries.
+    Orchestrates the full 6-step vulnerability analysis defined in the System Prompt.
+    Handles RAG retrieval timing (Phase A before Steps 1-2, Phase B before Step 3)
+    and KB update criteria. Does not redefine the analysis steps themselves.
     """
     return """
 Analyze the currently selected function for security vulnerabilities.
+Execute the 6-step analysis framework defined in the System Prompt.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-STEP 0 — DECOMPILE & RAG LOOKUP (before any analysis)
+STEP 0 — DECOMPILE & RETRIEVE (before any analysis)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 1. Decompile the current function via the reverse tool. Keep code internal — do NOT output it.
 
-2. Search the knowledge base in this order before reasoning about anything:
+2. Phase A — Architecture Context (before Steps 1–2):
+   search_component_context(component_name="<binary or function name>")
+   If struct/field names are visible in the code:
+   search_component_context(component_name="<struct name>", extra_context="<field name>")
 
-   A. search_component_context(component_name="<binary or function name>")
-      → architecture context, struct layouts, prior analysis of this binary.
+3. Execute Steps 1 through 6 exactly as defined in the System Prompt.
 
-   B. If struct/field names are visible in the code:
-      search_component_context(component_name="<struct name>", extra_context="<field name>")
-      → trust boundary annotations, field size limits.
+4. Phase B — Vulnerability Patterns (after Step 2, before Step 3):
+   For each unvalidated Source→Sink path found in Step 2, call:
+   search_vulnerability_patterns(vuln_type="<bug class>", code_context="<suspicious snippet>")
 
-   C. After Step 2 below (once Source→Sink paths identified):
-      search_vulnerability_patterns(vuln_type="<bug class>", code_context="<suspicious snippet>")
-      → pattern cards with apply_when conditions, CVE evidence, binary indicators.
-
-Do NOT include any RAG text in the output.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-OUTPUT — Steps 1 through 6
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Follow the system prompt's analysis framework exactly.
-
-### Step 1 — Understand the Code
-Component, function role (MMIO handler / lifecycle / packet processor / other),
-key data structures, constants. Max 5 sentences.
-
-### Step 2 — Identify Sources and Sinks
-Table: Source | Sink | Validated?
-If no guest-controlled data flows to a dangerous operation — state that and stop here.
-
-### Step 3 — Match Against Vulnerability Patterns
-For each unvalidated Source→Sink: which pattern card matches, why, what to verify.
-
-### Step 4 — Vulnerability Hypotheses
-For each match:
-  - Type / Location / Root cause / Pattern basis / Confidence (LOW|MEDIUM|HIGH) / Status: UNVERIFIED
-
-### Step 5 — Trigger and Impact
-Only for MEDIUM and HIGH confidence hypotheses.
-Trigger: specific guest action (register write / descriptor craft / shared memory op).
-Impact: minimum confirmed + escalation path.
-
-### Step 6 — Prioritized Summary Table
-| # | Location | Type | Confidence | Impact | Verify By |
-
-Label every claim: [FACT] [OBSERVATION] or [HYPOTHESIS].
-Do NOT output decompiled code or RAG text.
+Do NOT output decompiled code or RAG text verbatim.
+Label every non-trivial claim: [FACT] [OBSERVATION] [HYPOTHESIS].
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 KNOWLEDGE BASE UPDATE — only when justified
@@ -76,8 +45,7 @@ Call add_knowledge_text ONLY IF at least one of these is true:
   - This function is a confirmed entry point for guest data not previously documented.
 
 Format: "Analysis of [function]/[binary]: [distilled finding — one paragraph max]"
-
-Do NOT save: LOW-confidence speculation, already-known patterns, routine "function does X" summaries.
+Do NOT save: LOW-confidence speculation, already-known patterns, routine summaries.
 """
 
 
@@ -195,6 +163,11 @@ After completing the chain, state ONE of:
   PARTIAL GUARD    — validation exists but is incomplete (e.g., checks upper bound but
                      not integer overflow, checks after use, TOCTOU window). Describe the gap.
   OPAQUE           — one or more intermediate functions are not available for analysis.
+                     Before declaring OPAQUE, attempt a KB lookup:
+                       query_knowledge(query="<missing_function_name> <binary_name>")
+                     → if prior analysis exists for that function in another context,
+                       incorporate it and re-evaluate. Only declare OPAQUE if the
+                     function is truly absent from both the reverse tool and the KB.
                      State which function is missing and what cannot be determined.
 
 For UNVALIDATED PATH or PARTIAL GUARD: output a Hypothesis in Step 4 format

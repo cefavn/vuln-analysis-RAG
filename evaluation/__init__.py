@@ -5,5 +5,4 @@ __all__ = [
     "build_eval_bundle_from_intake",
     "build_judge_packets",
     "aggregate_judge_results",
-    "judge_compare",
 ]

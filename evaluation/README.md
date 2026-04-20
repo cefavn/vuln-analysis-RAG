@@ -1,13 +1,11 @@
-# Evaluation README (Primary Pipeline Only)
+# Evaluation Pipeline
 
-This folder now contains one benchmark pipeline only:
+Benchmark pipeline for QNX vulnerability-analysis RAG system.
 
-- Intake from Internet bug research (YAML/Markdown)
+- Intake from curated bug cases (YAML/Markdown)
 - Claude analysis on fixed prompts
 - Semantic scoring by a separate judge model
-- Aggregation and paired A/B comparison (GĐ1 vs GĐ2)
-
-No static keyword-matching scorer is used in this pipeline.
+- Aggregation and reporting
 
 ## Pipeline Overview
 
@@ -15,15 +13,10 @@ No static keyword-matching scorer is used in this pipeline.
 2. Convert intake to two files:
    - `analysis_inputs.jsonl` for Claude runs
    - `ground_truth_bug.jsonl` for judge comparison
-3. Run Claude twice on the same cases:
-   - config A: `RAG_MODE=gd1`
-   - config B: `RAG_MODE=gd2`
-4. Build judge packets from:
-   - ground truth
-   - Claude output
-   - shared rubric
+3. Run Claude on the cases using the fixed analysis prompt.
+4. Build judge packets from ground truth + Claude output + shared rubric.
 5. Ask a separate model to score each packet.
-6. Aggregate and compare A/B.
+6. Aggregate and report scores.
 
 ## Files You Will Use
 
@@ -32,7 +25,6 @@ No static keyword-matching scorer is used in this pipeline.
 - `build_eval_bundle_from_intake.py`
 - `build_judge_packets.py`
 - `aggregate_judge_results.py`
-- `judge_compare.py`
 
 ### Templates
 
@@ -91,9 +83,9 @@ Outputs:
 - `evaluation/tmp/analysis_inputs.jsonl`
 - `evaluation/tmp/ground_truth_bug.jsonl`
 
-## Step 3: Run Claude for Two RAG Modes
+## Step 3: Run Claude
 
-Use the same short prompt for all cases:
+Use the fixed prompt for all cases:
 
 - `evaluation/templates/analysis_prompt_short.txt`
 
@@ -102,37 +94,20 @@ For each row in `analysis_inputs.jsonl`, send:
 1. fixed short prompt
 2. the row's `analysis_input`
 
-Save outputs into two files with the schema in `templates/claude_output.template.jsonl`:
+Save outputs with the schema in `templates/claude_output.template.jsonl`:
 
-- `evaluation/tmp/claude_gd1_outputs.jsonl`
-- `evaluation/tmp/claude_gd2_outputs.jsonl`
-
-Benchmark fairness rules:
-
-- same model family/version
-- same short prompt
-- same case order
-- same temperature/token limits
-- only change `RAG_MODE`
+- `evaluation/tmp/claude_outputs.jsonl`
 
 ## Step 4: Build Judge Packets
 
 ```bash
 .venv/bin/python -m evaluation.build_judge_packets \
   --ground-truth evaluation/tmp/ground_truth_bug.jsonl \
-  --model-output evaluation/tmp/claude_gd1_outputs.jsonl \
+  --model-output evaluation/tmp/claude_outputs.jsonl \
   --rubric evaluation/templates/judge_rubric.template.yaml \
-  --system-id rag_gd1_context_only \
+  --system-id rag_gd2 \
   --run-id run-1 \
-  --output evaluation/tmp/judge_packets_gd1.jsonl
-
-.venv/bin/python -m evaluation.build_judge_packets \
-  --ground-truth evaluation/tmp/ground_truth_bug.jsonl \
-  --model-output evaluation/tmp/claude_gd2_outputs.jsonl \
-  --rubric evaluation/templates/judge_rubric.template.yaml \
-  --system-id rag_gd2_three_layers \
-  --run-id run-1 \
-  --output evaluation/tmp/judge_packets_gd2.jsonl
+  --output evaluation/tmp/judge_packets.jsonl
 ```
 
 ## Step 5: Run Judge Model
@@ -144,8 +119,7 @@ Use a separate model and fixed prompt:
 
 For each row in judge packets, ask judge model to return strict JSON and save to:
 
-- `evaluation/tmp/judge_results_gd1.jsonl`
-- `evaluation/tmp/judge_results_gd2.jsonl`
+- `evaluation/tmp/judge_results.jsonl`
 
 Judge output format reference:
 
@@ -155,44 +129,19 @@ Judge output format reference:
 
 ```bash
 .venv/bin/python -m evaluation.aggregate_judge_results \
-  --judge-results evaluation/tmp/judge_results_gd1.jsonl \
+  --judge-results evaluation/tmp/judge_results.jsonl \
   --rubric evaluation/templates/judge_rubric.template.yaml \
-  --system-id rag_gd1_context_only \
+  --system-id rag_gd2 \
   --run-id run-1 \
-  --output-dir evaluation/reports/judge/rag_gd1_context_only/run-1
-
-.venv/bin/python -m evaluation.aggregate_judge_results \
-  --judge-results evaluation/tmp/judge_results_gd2.jsonl \
-  --rubric evaluation/templates/judge_rubric.template.yaml \
-  --system-id rag_gd2_three_layers \
-  --run-id run-1 \
-  --output-dir evaluation/reports/judge/rag_gd2_three_layers/run-1
+  --output-dir evaluation/reports/judge/rag_gd2/run-1
 ```
 
-Generated per system:
+Generated per run:
 
 - `judge_summary.json`
 - `judge_aggregate.csv`
 - `judge_criteria_summary.csv`
 - `judge_case_scores.csv`
-
-## Step 7: Compare GĐ2 vs GĐ1
-
-```bash
-.venv/bin/python -m evaluation.judge_compare \
-  --summary-a evaluation/reports/judge/rag_gd2_three_layers/run-1/judge_summary.json \
-  --summary-b evaluation/reports/judge/rag_gd1_context_only/run-1/judge_summary.json \
-  --output evaluation/reports/judge/ab_test_gd2_vs_gd1.json \
-  --output-csv evaluation/reports/judge/ab_test_gd2_vs_gd1.csv
-```
-
-Key metrics in compare output:
-
-- `delta_weighted_score_mean`
-- `delta_weighted_score_mean_percent`
-- `delta_attack_surface_precision_manual`
-- `delta_attack_surface_precision_fuzzing`
-- paired test (`sign_test` or `wilcoxon`)
 
 ## Recommended Reporting Practice
 
@@ -212,11 +161,11 @@ Key metrics in compare output:
 ## Troubleshooting
 
 1. `No module named yaml`
-- Install dependencies with `pip install -r requirements.txt`.
+   - Install dependencies with `pip install -r requirements.txt`.
 
 2. Missing case output in Claude file
-- `build_judge_packets` will fill missing cases as abstain-empty output.
+   - `build_judge_packets` will fill missing cases as abstain-empty output.
 
 3. JSON parse errors in model output files
-- Ensure each row is valid JSON object.
-- Use `templates/claude_output.template.jsonl` and `templates/judge_results.template.jsonl` as strict references.
+   - Ensure each row is valid JSON object.
+   - Use `templates/claude_output.template.jsonl` and `templates/judge_results.template.jsonl` as strict references.

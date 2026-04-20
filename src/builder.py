@@ -82,6 +82,29 @@ def _content_hash(text: str) -> str:
     return hashlib.sha256(_normalize_ws(text).encode()).hexdigest()
 
 
+def _canonical_source(path: str) -> str:
+    """
+    Build a stable source identifier for metadata/ID generation.
+
+    If a file lives under DOCS_DIR, store it as rag_docs/<relative_path> so
+    re-indexing from different absolute roots (local vs Docker) does not create
+    duplicate logical sources.
+    """
+    if not path:
+        return "unknown"
+
+    abs_path = os.path.abspath(path)
+    docs_root = os.path.abspath(DOCS_DIR)
+    try:
+        rel_path = os.path.relpath(abs_path, docs_root)
+    except Exception:
+        rel_path = abs_path
+
+    if rel_path and rel_path != "." and not rel_path.startswith(".."):
+        return os.path.join("rag_docs", rel_path).replace("\\", "/")
+    return abs_path.replace("\\", "/")
+
+
 def _make_vector_id(doc: Document) -> str:
     """
     Build a stable vector ID from semantic metadata + normalized content hash.
@@ -308,7 +331,7 @@ def _load_json_pattern_file(json_path: str) -> List[Document]:
         documents.append(Document(
             page_content=text,
             metadata={
-                "source": json_path,
+                "source": _canonical_source(json_path),
                 "file_name": file_name,
                 "type": "vulnerability_pattern",
                 "doc_id": pattern.get("doc_id", f"{file_name}-{i}"),
@@ -341,12 +364,6 @@ _C_SECTION_TITLE_RE = re.compile(
 
 # Top-level (unindented) block comment
 _C_TOP_COMMENT_RE = re.compile(r"^/\*.*?\*/", re.MULTILINE | re.DOTALL)
-
-# typedef struct ... } name; (handles one level of nested braces)
-_C_STRUCT_RE = re.compile(
-    r"typedef\s+struct\s+\w*\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}\s*(\w+)\s*;",
-    re.DOTALL,
-)
 
 
 def _scan_balanced_braces(text: str, pos: int) -> int:
@@ -501,7 +518,7 @@ def _c_to_markdown_docs(c_path: str) -> List[Document]:
     fname = os.path.basename(c_path)
     bmeta = _c_binary_meta(text)
     base: Dict[str, Any] = {
-        "source": c_path, "file_name": fname,
+        "source": _canonical_source(c_path), "file_name": fname,
         "type": "decompiled_c", "page": 0,
         **bmeta,
     }
@@ -560,18 +577,27 @@ def _c_to_markdown_docs(c_path: str) -> List[Document]:
 
         # ── Data structures: one chunk per typedef struct ─────────────────
         elif "DATA STRUCT" in title_up or title_up.startswith("STRUCT"):
-            # Include nested-brace structs (vionet_hdr has uint32_t lengths[128])
-            struct_re = re.compile(
-                r"(/\*.*?\*/\s*)?"
-                r"typedef\s+struct\s+[\w_]*\s*\{.*?\}\s*([\w_]+)\s*;",
+            # Use _scan_balanced_braces so structs with nested union/struct fields
+            # (any depth) are captured correctly. The lazy-regex approach would
+            # stop at the first inner `}` and miss the outer typedef name.
+            _TYPEDEF_OPEN_RE = re.compile(
+                r"(/\*.*?\*/\s*)?typedef\s+struct\s+[\w_]*\s*\{",
                 re.DOTALL,
             )
-            for sm in struct_re.finditer(content):
-                sname = sm.group(2)
-                comment = _clean_block_comment(sm.group(1) or "")
-                stext = sm.group(0)
-                body = f"## Struct: {sname}\n\n{comment}\n\n```c\n{stext}\n```" \
-                       if comment else f"## Struct: {sname}\n\n```c\n{stext}\n```"
+            for tm in _TYPEDEF_OPEN_RE.finditer(content):
+                # tm.end() - 1 is the position of the opening `{` consumed by the pattern
+                brace_end = _scan_balanced_braces(content, tm.end() - 1)
+                suffix_m = re.match(r"\s*([\w_]+)\s*;", content[brace_end:])
+                if not suffix_m:
+                    continue
+                sname = suffix_m.group(1)
+                stext = content[tm.start() : brace_end + suffix_m.end()]
+                comment = _clean_block_comment(tm.group(1) or "")
+                body = (
+                    f"## Struct: {sname}\n\n{comment}\n\n```c\n{stext}\n```"
+                    if comment
+                    else f"## Struct: {sname}\n\n```c\n{stext}\n```"
+                )
                 docs.append(Document(
                     page_content=body,
                     metadata={**base, "type": "c_struct",
@@ -666,7 +692,7 @@ def _build_to_markdown_docs(build_path: str) -> List[Document]:
 
     fname = os.path.basename(build_path)
     base: Dict[str, Any] = {
-        "source": build_path, "file_name": fname,
+        "source": _canonical_source(build_path), "file_name": fname,
         "type": "build_config", "page": 0,
     }
     docs: List[Document] = []
@@ -853,16 +879,20 @@ class DocumentBuilder:
     # ------------------------------------------------------------------
 
     def _discover_documents(self) -> List[str]:
-        if not os.path.exists(DOCS_DIR):
-            print(f"Warning: DOCS_DIR not found: {DOCS_DIR}")
-            return []
-        paths = [
-            os.path.join(DOCS_DIR, f)
-            for f in sorted(os.listdir(DOCS_DIR))
-            if f.lower().endswith((".pdf", ".txt", ".json", ".md", ".c", ".build"))
-        ]
-        print(f"Discovered {len(paths)} document(s) in {DOCS_DIR}")
-        return paths
+            if not os.path.exists(DOCS_DIR):
+                print(f"Warning: DOCS_DIR not found: {DOCS_DIR}")
+                return []
+                
+            paths = []
+            # Dùng os.walk để quét đệ quy toàn bộ thư mục con
+            for root, dirs, files in os.walk(DOCS_DIR):
+                for f in files:
+                    if f.lower().endswith((".pdf", ".txt", ".json", ".md", ".c", ".build")):
+                        paths.append(os.path.join(root, f))
+                        
+            paths.sort() # Sắp xếp để log ra cho đẹp
+            print(f"Discovered {len(paths)} document(s) in {DOCS_DIR} and its subdirectories")
+            return paths
 
     # ------------------------------------------------------------------
     # Step 1: Load & standardize to Markdown Documents
@@ -904,7 +934,7 @@ class DocumentBuilder:
                 documents.append(Document(
                     page_content=md_text,
                     metadata={
-                        "source": pdf_path,
+                        "source": _canonical_source(pdf_path),
                         "file_name": file_name,
                         "type": "reference_document",
                         "page": page_num,
@@ -934,14 +964,14 @@ class DocumentBuilder:
                     for d in docs:
                         d.metadata.setdefault("type", "reference_document")
                         d.metadata.setdefault("file_name", os.path.basename(path))
-                        d.metadata.setdefault("source", path)
+                        d.metadata.setdefault("source", _canonical_source(path))
                 elif ext == ".md":
                     with open(path, "r", encoding="utf-8") as f:
                         text = f.read()
                     docs = [Document(
                         page_content=text,
                         metadata={
-                            "source": path,
+                            "source": _canonical_source(path),
                             "file_name": os.path.basename(path),
                             "type": "reference_document",
                             "page": 0,
@@ -1110,6 +1140,7 @@ class DocumentBuilder:
             str(d.metadata.get("source", "")).strip()
             for d in all_docs
             if str(d.metadata.get("source", "")).strip()
+            and str(d.metadata.get("source", "")).strip() != "unknown"
         })
         if sources_to_refresh:
             cleaner = PineconeVectorStore(index_name=self.index_name, embedding=self.embeddings)

@@ -16,7 +16,7 @@ from prompts import (
     prompt_trace_data_flow,
     prompt_refactor_current_function,
 )
-from config import CONTEXT_ONLY_TYPES, RAG_MODE, RETRIEVAL_MIN_SCORE
+from config import RETRIEVAL_MIN_SCORE
 
 mcp = FastMCP("QNX-Vuln-RAG")
 
@@ -45,10 +45,6 @@ def _get_builder() -> DocumentBuilder:
     if _builder is None:
         _builder = DocumentBuilder()
     return _builder
-
-
-def _mode() -> str:
-    return RAG_MODE if RAG_MODE in {"gd1", "gd2"} else "gd2"
 
 
 def _no_evidence(query: str, min_score: float) -> List[Dict[str, str]]:
@@ -83,12 +79,9 @@ def query_knowledge(query: str, k: int = 5) -> List[Dict[str, str]]:
     """
     k = min(max(1, k), 20)
     try:
-        mode = _mode()
-        filter_obj = {"type": {"$in": CONTEXT_ONLY_TYPES}} if mode == "gd1" else None
         results = get_retriever().query(
             query,
             k=k,
-            filter=filter_obj,
             min_score=RETRIEVAL_MIN_SCORE,
         )
         if RETRIEVAL_MIN_SCORE > 0 and not results:
@@ -120,11 +113,6 @@ def search_vulnerability_patterns(vuln_type: str, code_context: str = "", k: int
     """
     k = min(max(1, k), 10)
     combined_query = f"{vuln_type} {code_context}".strip()
-    if _mode() == "gd1":
-        return [{
-            "status": "disabled_in_gd1",
-            "message": "search_vulnerability_patterns is disabled when RAG_MODE=gd1",
-        }]
     try:
         results = get_retriever().query_with_scores(
             combined_query,
@@ -159,12 +147,9 @@ def search_component_context(component_name: str, extra_context: str = "", k: in
     k = min(max(1, k), 15)
     combined_query = f"{component_name} {extra_context}".strip()
     try:
-        mode = _mode()
-        filter_obj = {"type": {"$in": CONTEXT_ONLY_TYPES}} if mode == "gd1" else None
         results = get_retriever().query_with_scores(
             combined_query,
             k=k,
-            filter=filter_obj,
             min_score=RETRIEVAL_MIN_SCORE,
         )
         if RETRIEVAL_MIN_SCORE > 0 and not results:
@@ -189,12 +174,9 @@ def query_knowledge_with_scores(query: str, k: int = 5) -> List[Dict[str, str]]:
     """
     k = min(max(1, k), 20)
     try:
-        mode = _mode()
-        filter_obj = {"type": {"$in": CONTEXT_ONLY_TYPES}} if mode == "gd1" else None
         results = get_retriever().query_with_scores(
             query,
             k=k,
-            filter=filter_obj,
             min_score=RETRIEVAL_MIN_SCORE,
         )
         if RETRIEVAL_MIN_SCORE > 0 and not results:
@@ -253,7 +235,6 @@ def get_knowledge_info() -> Dict[str, str]:
     """
     try:
         info = get_retriever().get_db_info()
-        info["rag_mode"] = _mode()
         info["retrieval_min_score"] = str(RETRIEVAL_MIN_SCORE)
         return info
     except Exception as e:
