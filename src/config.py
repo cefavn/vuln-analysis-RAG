@@ -5,14 +5,15 @@ from dotenv import load_dotenv
 load_dotenv()
 
 PINECONE_API_KEY: str = os.getenv("PINECONE_API_KEY", "")
-PINECONE_INDEX_NAME: str = os.getenv("PINECONE_INDEX_NAME", "rag-mcp-server")
+PINECONE_INDEX_NAME: str = os.getenv("PINECONE_INDEX_NAME", "")
 OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
-TESSERACT_PATH: str = os.getenv("TESSERACT_PATH", "/usr/bin/tesseract")
+TESSERACT_PATH: str = os.getenv("TESSERACT_PATH", "")
 
 EMBEDDING_MODEL: str = "text-embedding-3-small"
 
 # Optional retrieval confidence gate. 0.0 disables score filtering.
 RETRIEVAL_MIN_SCORE: float = float(os.getenv("RETRIEVAL_MIN_SCORE", "0.0"))
+
 
 # Parent chunk: max size before splitting into children.
 # A Markdown section larger than this gets child-split.

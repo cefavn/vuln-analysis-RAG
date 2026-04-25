@@ -1,0 +1,345 @@
+# =============================================================================
+# QNX Hypervisor RAG Benchmark - Testcase Set (Evidence-First Template)
+#
+# Design goals:
+# 1) Keep model-facing input neutral (avoid answer leakage).
+# 2) Use only verifiable code excerpts from real upstream versions.
+# 3) Keep ground truth strict and auditable.
+#
+# IMPORTANT:
+# - Fields used by analysis model: prompt, analysis_context, source_code.
+# - ground_truth is for judging only and should never be sent to the analysis model.
+# =============================================================================
+
+cases:
+  # ---------------------------------------------------------------------------
+  # CASE 1 - POSITIVE (real vulnerable code)
+  # CVE-2024-7730, pre-fix QEMU virtio-snd input path
+  # ---------------------------------------------------------------------------
+  - case_id: qemu-virtio-snd-rx-001
+    title: "virtio-snd RX callback (pre-fix upstream code)"
+    component: "qemu hw/audio/virtio-snd.c"
+    tags:
+      - transfer_case
+      - qemu
+      - virtio
+      - guest_to_host
+      - pre_fix
+
+    prompt: >
+      Review the host-side audio input callback and determine whether
+      guest-controlled queue state can lead to unsafe memory write.
+      Identify source, sink, trigger condition, and impact.
+
+    analysis_context: |
+      Target binary: qemu-system-*
+      Trust boundary: guest-provided virtqueue descriptors and host audio callback input.
+      Scope: only this excerpt.
+      Note: do not assume vulnerability by default; decide from code behavior.
+
+    # Verbatim excerpt from qemu v8.2.0, hw/audio/virtio-snd.c
+    # Extracted with:
+    # curl -L -s https://gitlab.com/qemu-project/qemu/-/raw/v8.2.0/hw/audio/virtio-snd.c | nl -ba | sed -n '1260,1320p'
+    source_code: |
+      static void virtio_snd_pcm_in_cb(void *data, int available)
+      {
+          VirtIOSoundPCMStream *stream = data;
+          VirtIOSoundPCMBuffer *buffer;
+          size_t size;
+
+          WITH_QEMU_LOCK_GUARD(&stream->queue_mutex) {
+              while (!QSIMPLEQ_EMPTY(&stream->queue)) {
+                  buffer = QSIMPLEQ_FIRST(&stream->queue);
+                  if (!virtio_queue_ready(buffer->vq)) {
+                      return;
+                  }
+                  if (!stream->active) {
+                      return_rx_buffer(stream, buffer);
+                      continue;
+                  }
+
+                  for (;;) {
+                      size = AUD_read(stream->voice.in,
+                              buffer->data + buffer->size,
+                              MIN(available, (stream->params.period_bytes -
+                                              buffer->size)));
+                      if (!size) {
+                          available = 0;
+                          break;
+                      }
+                      buffer->size += size;
+                      available -= size;
+                      if (buffer->size >= stream->params.period_bytes) {
+                          return_rx_buffer(stream, buffer);
+                          break;
+                      }
+                      if (!available) {
+                          break;
+                      }
+                  }
+                  if (!available) {
+                      break;
+                  }
+              }
+          }
+      }
+
+    ground_truth:
+      has_vulnerability: true
+      vulnerabilities:
+        - vuln_id: CVE-2024-7730
+          vuln_type: buffer_overflow
+          severity: HIGH
+          min_impact: "Guest-to-host memory corruption, potential code execution"
+          location_keywords:
+            - virtio_snd_pcm_in_cb
+            - AUD_read
+            - buffer->data
+            - period_bytes
+          evidence_keywords:
+            - missing bound check against iov capacity
+            - heap out-of-bounds write
+            - guest-controlled descriptor size edge case
+          source_fields:
+            - buffer->elem->in_sg
+            - buffer->elem->in_num
+            - available
+          sink_ops:
+            - AUD_read(stream->voice.in, buffer->data + buffer->size, MIN(...))
+          root_cause: >
+            The callback bounds writes by period_bytes but not by the actual
+            writable capacity derived from the current virtqueue element.
+            Under crafted queue sizing, writes can exceed valid buffer space.
+          trigger_concept: >
+            Provide RX virtqueue element sizing that leaves no safe payload room
+            while audio callback still writes available bytes.
+
+    references:
+      - "https://nvd.nist.gov/vuln/detail/CVE-2024-7730"
+      - "https://bugzilla.redhat.com/show_bug.cgi?id=2304289"
+      - "http://www.mail-archive.com/qemu-devel@nongnu.org/msg1171029.html"
+
+    notes: >
+      Provenance: upstream QEMU v8.2.0 pre-fix excerpt. This case is intended
+      as a transfer pattern relevant to virtqueue-based host-side device code.
+
+  # ---------------------------------------------------------------------------
+  # CASE 2 - POSITIVE (real vulnerable code)
+  # CVE-2023-6693, pre-fix QEMU virtio-net TX flush path
+  # ---------------------------------------------------------------------------
+  - case_id: qemu-virtio-net-tx-002
+    title: "virtio-net TX header handling (pre-fix upstream code)"
+    component: "qemu hw/net/virtio-net.c"
+    tags:
+      - transfer_case
+      - qemu
+      - virtio
+      - guest_to_host
+      - pre_fix
+
+    prompt: >
+      Analyze whether guest-influenced header length can overflow a host stack
+      object during TX processing. Report source, sink, and any confidentiality
+      or integrity impact.
+
+    analysis_context: |
+      Target binary: qemu-system-*
+      Trust boundary: guest-negotiated features and guest TX descriptors.
+      Scope: only this excerpt.
+      Note: do not assume vulnerability by default; decide from code behavior.
+
+    # Verbatim excerpts from qemu v8.2.0, hw/net/virtio-net.c
+    # Source selection:
+    # - guest header size setup (line region around 670)
+    # - vulnerable TX flush copy path (line region around 2690)
+    source_code: |
+      static void virtio_net_set_mrg_rx_bufs(VirtIONet *n, int mergeable_rx_bufs,
+                         int version_1, int hash_report)
+      {
+        n->mergeable_rx_bufs = mergeable_rx_bufs;
+
+        if (version_1) {
+          n->guest_hdr_len = hash_report ?
+            sizeof(struct virtio_net_hdr_v1_hash) :
+            sizeof(struct virtio_net_hdr_mrg_rxbuf);
+          n->rss_data.populate_hash = !!hash_report;
+        } else {
+          n->guest_hdr_len = n->mergeable_rx_bufs ?
+            sizeof(struct virtio_net_hdr_mrg_rxbuf) :
+            sizeof(struct virtio_net_hdr);
+        }
+      }
+
+      static int32_t virtio_net_flush_tx(VirtIONetQueue *q)
+      {
+        for (;;) {
+          ssize_t ret;
+          unsigned int out_num;
+          struct iovec sg[VIRTQUEUE_MAX_SIZE], sg2[VIRTQUEUE_MAX_SIZE + 1], *out_sg;
+          struct virtio_net_hdr_mrg_rxbuf mhdr;
+
+          elem = virtqueue_pop(q->tx_vq, sizeof(VirtQueueElement));
+          if (!elem) {
+            break;
+          }
+
+          out_num = elem->out_num;
+          out_sg = elem->out_sg;
+          if (out_num < 1) {
+            virtio_error(vdev, "virtio-net header not in first element");
+            virtqueue_detach_element(q->tx_vq, elem, 0);
+            g_free(elem);
+            return -EINVAL;
+          }
+
+          if (n->has_vnet_hdr) {
+            if (iov_to_buf(out_sg, out_num, 0, &mhdr, n->guest_hdr_len) <
+              n->guest_hdr_len) {
+              virtio_error(vdev, "virtio-net header incorrect");
+              virtqueue_detach_element(q->tx_vq, elem, 0);
+              g_free(elem);
+              return -EINVAL;
+            }
+            if (n->needs_vnet_hdr_swap) {
+              virtio_net_hdr_swap(vdev, (void *) &mhdr);
+              sg2[0].iov_base = &mhdr;
+              sg2[0].iov_len = n->guest_hdr_len;
+              out_num = iov_copy(&sg2[1], ARRAY_SIZE(sg2) - 1,
+                       out_sg, out_num,
+                       n->guest_hdr_len, -1);
+              if (out_num == VIRTQUEUE_MAX_SIZE) {
+                goto drop;
+              }
+              out_num += 1;
+              out_sg = sg2;
+            }
+          }
+        }
+      }
+
+    ground_truth:
+      has_vulnerability: true
+      vulnerabilities:
+        - vuln_id: CVE-2023-6693
+          vuln_type: buffer_overflow
+          severity: MEDIUM
+          min_impact: "Stack corruption and potential information leak"
+          location_keywords:
+            - virtio_net_flush_tx
+            - iov_to_buf
+            - mhdr
+            - guest_hdr_len
+          evidence_keywords:
+            - stack-based overflow
+            - undersized local header buffer
+            - hash_report feature path
+          source_fields:
+            - n->guest_hdr_len
+            - out_sg
+          sink_ops:
+            - iov_to_buf(out_sg, out_num, 0, &mhdr, n->guest_hdr_len)
+            - sg2[0].iov_len = n->guest_hdr_len
+          root_cause: >
+            In the HASH_REPORT path, guest_hdr_len may exceed
+            sizeof(virtio_net_hdr_mrg_rxbuf), but data is copied into mhdr.
+          trigger_concept: >
+            Negotiate feature combination so guest_hdr_len resolves to
+            virtio_net_hdr_v1_hash size and trigger TX flush.
+
+    references:
+      - "https://nvd.nist.gov/vuln/detail/CVE-2023-6693"
+      - "https://bugzilla.redhat.com/show_bug.cgi?id=2254580"
+      - "https://lists.nongnu.org/archive/html/qemu-devel/2024-01/msg00045.html"
+
+    notes: >
+      Provenance: upstream QEMU v8.2.0 pre-fix excerpt. Fixed release switched
+      local buffer type to virtio_net_hdr_v1_hash.
+
+  # ---------------------------------------------------------------------------
+  # CASE 3 - NEGATIVE (real fixed code)
+  # Post-fix variant of CVE-2024-7730 path in QEMU v9.1.0
+  # ---------------------------------------------------------------------------
+  - case_id: qemu-virtio-snd-rx-003
+    title: "virtio-snd RX callback (post-fix upstream code)"
+    component: "qemu hw/audio/virtio-snd.c"
+    tags:
+      - transfer_case
+      - qemu
+      - virtio
+      - guest_to_host
+      - post_fix
+      - negative_control
+
+    prompt: >
+      Evaluate whether this revised callback path still permits an out-of-bounds
+      write under adversarial virtqueue sizing.
+
+    analysis_context: |
+      Target binary: qemu-system-*
+      Trust boundary: guest-provided virtqueue descriptors and host audio callback input.
+      Scope: only this excerpt.
+      Note: this is a fixed-version candidate and should be judged by code behavior.
+
+    # Verbatim excerpt from qemu v9.1.0, hw/audio/virtio-snd.c
+    # Extracted with:
+    # curl -L -s https://gitlab.com/qemu-project/qemu/-/raw/v9.1.0/hw/audio/virtio-snd.c | nl -ba | sed -n '1258,1325p'
+    source_code: |
+      static void virtio_snd_pcm_in_cb(void *data, int available)
+      {
+          VirtIOSoundPCMStream *stream = data;
+          VirtIOSoundPCMBuffer *buffer;
+          size_t size, max_size;
+
+          WITH_QEMU_LOCK_GUARD(&stream->queue_mutex) {
+              while (!QSIMPLEQ_EMPTY(&stream->queue)) {
+                  buffer = QSIMPLEQ_FIRST(&stream->queue);
+                  if (!virtio_queue_ready(buffer->vq)) {
+                      return;
+                  }
+                  if (!stream->active) {
+                      return_rx_buffer(stream, buffer);
+                      continue;
+                  }
+
+                  max_size = iov_size(buffer->elem->in_sg, buffer->elem->in_num);
+                  for (;;) {
+                      if (buffer->size >= max_size) {
+                          return_rx_buffer(stream, buffer);
+                          break;
+                      }
+                      size = AUD_read(stream->voice.in,
+                              buffer->data + buffer->size,
+                              MIN(available, (stream->params.period_bytes -
+                                              buffer->size)));
+                      if (!size) {
+                          available = 0;
+                          break;
+                      }
+                      buffer->size += size;
+                      available -= size;
+                      if (buffer->size >= stream->params.period_bytes) {
+                          return_rx_buffer(stream, buffer);
+                          break;
+                      }
+                      if (!available) {
+                          break;
+                      }
+                  }
+                  if (!available) {
+                      break;
+                  }
+              }
+          }
+      }
+
+    ground_truth:
+      has_vulnerability: false
+      vulnerabilities: []
+
+    references:
+      - "https://nvd.nist.gov/vuln/detail/CVE-2024-7730"
+      - "http://www.mail-archive.com/qemu-devel@nongnu.org/msg1171029.html"
+
+    notes: >
+      Provenance: upstream QEMU v9.1.0 fixed excerpt. Added max_size-based guard
+      closes the vulnerable write condition from the pre-fix path.

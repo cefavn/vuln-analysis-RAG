@@ -1,0 +1,72 @@
+{
+"case_id": "qemu-virtio-snd-rx-001",
+"system_id": "rag_gd1",
+"run_id": "run-1",
+"criteria": {
+"c1_context_correct": 1.0,
+"c2_identify_source": 1.0,
+"c3_trace_source_to_sink": 1.0,
+"c4_vuln_hypothesis": 1.0,
+"c5_root_cause_explanation": 1.0,
+"c6_correct_location": 1.0,
+"c7_pattern_or_cve_reference": 1.0,
+"c8_trigger_and_poc_concept": 1.0,
+"c9_impact_classification": 1.0,
+"c10_low_false_positive": 1.0
+},
+"attack_surface": {
+"proposed": 1,
+"validated_manual": 0,
+"validated_fuzzing": 0
+},
+"verdict": "supported",
+"rationale": "The model output provides a high-fidelity analysis of the buffer overflow in virtio-snd. It correctly identifies the role of period_bytes as a guest-controlled source and notes the lack of bounds checking against the physical buffer capacity of the virtqueue element. The trigger concept and impact assessment align precisely with the ground truth for CVE-2024-7730."
+}
+{
+  "case_id": "qemu-virtio-net-tx-002",
+  "system_id": "gd1",
+  "run_id": "run-1",
+  "criteria": {
+    "c1_context_correct": 1.0,
+    "c2_identify_source": 1.0,
+    "c3_trace_source_to_sink": 1.0,
+    "c4_vuln_hypothesis": 1.0,
+    "c5_root_cause_explanation": 1.0,
+    "c6_correct_location": 1.0,
+    "c7_pattern_or_cve_reference": 1.0,
+    "c8_trigger_and_poc_concept": 1.0,
+    "c9_impact_classification": 1.0,
+    "c10_low_false_positive": 1.0
+  },
+  "attack_surface": {
+    "proposed": 1,
+    "validated_manual": 0,
+    "validated_fuzzing": 0
+  },
+  "verdict": "supported",
+  "rationale": "Excellent analysis that mirrors the ground truth perfectly. It clearly identifies the size mismatch between virtio_net_hdr_v1_hash and virtio_net_hdr_mrg_rxbuf. It specifically notes the lack of bounds checking in iov_to_buf and the propagation of the oversized length, correctly classifying this as a high-confidence VM escape primitive."
+}
+{
+  "case_id": "qemu-virtio-snd-rx-003",
+  "system_id": "gd1",
+  "run_id": "run-1",
+  "criteria": {
+    "c1_context_correct": 1.0,
+    "c2_identify_source": 1.0,
+    "c3_trace_source_to_sink": 0.0,
+    "c4_vuln_hypothesis": 0.0,
+    "c5_root_cause_explanation": 0.0,
+    "c6_correct_location": 1.0,
+    "c7_pattern_or_cve_reference": 0.0,
+    "c8_trigger_and_poc_concept": 0.0,
+    "c9_impact_classification": 0.0,
+    "c10_low_false_positive": 0.0
+  },
+  "attack_surface": {
+    "proposed": 3,
+    "validated_manual": 0,
+    "validated_fuzzing": 0
+  },
+  "verdict": "not_supported",
+  "rationale": "The model fails significantly by identifying three vulnerabilities in a negative control case (fixed code). It claims 'HIGH' confidence for a heap corruption path that is explicitly blocked by the max_size guard added in the post-fix excerpt. This is a severe false positive."
+}

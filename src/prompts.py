@@ -5,6 +5,9 @@
 #   triage_module             — fast attack-surface scan of all functions in a binary
 #   trace_data_flow           — trace a guest-controlled value across a multi-function call chain
 #   refactor_current_function — rename + annotate for readability before deep analysis
+#   generate_poc              — write minimal QNX guest-side PoC from a confirmed hypothesis
+#   map_attack_surface        — synthesize session findings into IVC attack surface map + diagram
+#   identify_fuzzing_targets  — convert hypotheses into fuzzing specs with harness skeleton
 
 
 def prompt_analyze_current_function() -> str:
@@ -236,4 +239,242 @@ STEP 3 — APPLY VIA REVERSE TOOL (silent)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Apply via reverse tool APIs: rename function, rename variables, insert comments.
 No output. No KB update.
+"""
+
+
+def prompt_generate_poc() -> str:
+    """
+    Write a minimal QNX guest-side PoC from a MEDIUM/HIGH confidence hypothesis.
+    Gate: refuses if confidence is LOW or path verdict is OPAQUE.
+    Forces QNX-specific APIs; retrieves struct offsets from KB before writing code.
+    """
+    return """
+Write a minimal QNX guest-side PoC program that triggers the vulnerability hypothesis
+produced by the preceding analysis session.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 0 — GATE CHECK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Check the most recent hypothesis or trace_data_flow verdict.
+
+STOP and respond "PoC deferred — run trace_data_flow first to confirm the path" if:
+  - All hypotheses have confidence LOW, OR
+  - Path verdict from trace_data_flow is OPAQUE.
+
+Otherwise extract:
+  - Attack vector: SHMEM | MMIO | VIRTQUEUE
+  - Target function and dangerous operation (sink)
+  - Which guest-controlled field to corrupt and the malicious value
+  - Required precondition (e.g., "shmem region must be attached first")
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 1 — RETRIEVE STRUCT LAYOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+search_component_context(component_name="<binary>", extra_context="<target struct> field offset layout")
+→ retrieve exact field offsets and sizes from the KB before writing any code.
+Do NOT hardcode offsets that were not confirmed by IDA-MCP or RAG.
+If offsets are unavailable, mark them with: /* OFFSET_UNKNOWN — verify in IDA */
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 2 — PoC CODE (QNX guest-side ONLY)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Use ONLY these QNX guest-side primitives. Do NOT use Linux-specific APIs.
+
+  SHMEM vector — guest writes to shared memory read by qvm:
+    fd  = shm_open("/dev/shmem/<name>", O_RDWR, 0)
+    ptr = mmap(NULL, size, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0)
+    // cast ptr to target struct, write malicious field value, trigger the operation
+
+  MMIO vector — guest writes to memory-mapped register:
+    ptr = mmap_device_memory(NULL, len, PROT_READ|PROT_WRITE|PROT_NOCACHE, 0, phys_addr)
+    // write trigger value to register at known offset
+
+  VIRTQUEUE vector — guest crafts malicious descriptor:
+    // write addr/len/flags directly into descriptor ring at known offset
+
+Structure of the PoC:
+  1. Setup   — open and map the attack surface (setup preconditions if any)
+  2. Trigger — write the malicious value; annotate every write:
+               // [HYPOTHESIS N] triggers <type> at <function>:<operation>
+  3. Observe — comment on expected observable effect:
+               // Expected: qvm crashes (DoS) / memory read possible (Info Leak)
+  4. Cleanup — munmap + close fd
+
+Compile command: qcc -Vgcc_ntoaarch64le poc.c -o poc
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 3 — VERIFICATION CHECKLIST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+State for each PoC:
+  - Crash oracle:  pidin | grep qvm  → qvm entry disappears = confirmed crash
+  - GDB validation: break <sink_function>  then examine registers/stack at hit
+  - False positive signal: qvm keeps running, no fault in slogger2 output
+
+Do NOT call add_knowledge_text — PoC source belongs in source control, not the KB.
+"""
+
+
+def prompt_map_attack_surface() -> str:
+    """
+    Top-down synthesis of IVC attack surface across a full analysis session.
+    Produces Mermaid data-flow diagram + attack surface table + thesis-ready summary.
+    Run AFTER triage_module + at least one analyze_current_function session.
+    KB update: saves high-level attack surface summary.
+    """
+    return """
+Synthesize all findings from this analysis session into a complete IVC attack surface map.
+
+Run this AFTER completing triage_module and at least one analyze_current_function.
+Base every node and edge ONLY on facts confirmed by IDA-MCP or RAG — do NOT invent paths.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 0 — CONTEXT RETRIEVAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+search_component_context(component_name="<binary name>")
+search_component_context(component_name="IVC <shmem|virtio> mechanism", extra_context="trust boundary data flow")
+→ retrieve architecture context and any prior attack surface summaries from the KB.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 1 — DATA FLOW DIAGRAM (Mermaid)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Output a Mermaid flowchart tracing guest data from entry to dangerous operation.
+Use confirmed function names from the analysis. Mark unknown nodes with "??".
+
+```mermaid
+flowchart LR
+    G[Guest VM] -- "UNTRUSTED: <field>" --> E[<entry_function>]
+    E -- "validated? YES/NO/PARTIAL" --> M[<intermediate_function>]
+    M --> S["SINK: <dangerous_op>"]
+```
+
+Edge labels: UNTRUSTED | VALIDATED | PARTIALLY_VALIDATED | OPAQUE
+Node shape: rectangles for functions, parallelograms for data stores.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 2 — ATTACK SURFACE TABLE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Aggregate all hypotheses and unanalyzed entry points:
+
+| # | Entry Point | Guest Input | Validation | Sink | Hypothesis | Confidence | Priority |
+|---|------------|-------------|-----------|------|-----------|-----------|---------|
+
+  - Include ALL Source→Sink paths from this session (any confidence).
+  - Mark uninvestigated functions from the triage table as "?? — not yet analyzed".
+  - Priority = HIGH/MEDIUM/LOW based on confidence × impact.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 3 — THESIS SUMMARY (3–5 sentences)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Write a concise paragraph for the report:
+  - Number of entry points identified and IVC mechanism covered.
+  - Distribution of Source→Sink paths: how many validated vs unvalidated.
+  - Highest-confidence hypothesis with type and impact.
+  - What remains uninvestigated and recommended next steps.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+KNOWLEDGE BASE UPDATE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Call add_knowledge_text with:
+Format: "Attack surface map [binary] [date]: [N] entry points, [N] UNVALIDATED paths.
+ Top hypothesis: [type] at [location], [HIGH/MEDIUM] confidence.
+ Uninvestigated: [list of ?? functions from Step 2]."
+"""
+
+
+def prompt_identify_fuzzing_targets() -> str:
+    """
+    Convert MEDIUM/HIGH hypotheses into fuzzing specs: mutation strategy, seed corpus,
+    crash oracle, and QNX harness skeleton. Input for building a fuzzer harness.
+    Skips LOW confidence and OPAQUE paths.
+    """
+    return """
+Convert the MEDIUM/HIGH confidence hypotheses from this session into fuzzing specifications.
+
+Run this AFTER analyze_current_function or trace_data_flow has produced hypotheses.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 0 — FILTER HYPOTHESES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+From this session, select only:
+  - Hypotheses with confidence MEDIUM or HIGH.
+  - Paths with verdict UNVALIDATED PATH or PARTIAL GUARD.
+Skip LOW confidence and OPAQUE paths — state which were skipped and why.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 1 — RETRIEVE FIELD CONSTRAINTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+For each selected hypothesis:
+  search_component_context(component_name="<target function> <binary>",
+                           extra_context="<fuzz field> size type constraints valid range")
+→ retrieve field width, declared max size, and any known valid values from the KB.
+Use this to compute meaningful boundary values — do not guess.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 2 — FUZZING SPEC (one block per hypothesis)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+For each selected hypothesis, produce:
+
+  Target:
+    Binary / Function : <name>
+    Attack vector     : SHMEM | MMIO | VIRTQUEUE
+    Fuzz field        : <struct field or register offset>
+    Field type        : <uint32_t / char[N] / size_t / ...>
+
+  Mutation strategy:
+    Boundary values   : 0, 1, declared_max-1, declared_max, declared_max+1
+    Overflow probes   : UINT32_MAX, INT32_MAX, INT32_MAX+1, SIZE_MAX
+    Page boundaries   : 0x1000-1, 0x1000, 0x10000, 0x100000
+    Valid seed        : <known-good value from IDA or KB>
+
+  Crash oracle (in order of reliability):
+    1. pidin | grep qvm  →  entry disappears = qvm crashed (confirmed DoS)
+    2. slogger2 shows fault at <expected function>
+    3. Guest-side operation returns error code unexpectedly (may indicate host fault)
+
+  Harness skeleton (QNX guest C):
+    // Setup: identical to PoC — open and map the attack surface
+    uint32_t mutations[] = { /* boundary values above */ };
+    for (int i = 0; i < N; i++) {
+        write mutations[i] to fuzz_field at known offset
+        trigger the operation that causes qvm to read the field
+        check crash oracle (poll pidin or check return code)
+        reset state if possible (re-attach, re-open)
+    }
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STEP 3 — PRIORITY TABLE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+| # | Target Function | Fuzz Field | Vector | Confidence | Expected Impact | Fuzz First? |
+|---|----------------|-----------|--------|-----------|----------------|------------|
+
+Order: HIGH confidence first, then by impact severity (VM Escape > Memory Corruption > DoS > Info Leak).
+
+Do NOT call add_knowledge_text — fuzzing specs belong in an engineering document, not the KB.
+"""
+
+
+def prompt_benchmark_analysis() -> str:
+    """
+    Benchmark prompt to evaluate LLM performance on a specific analysis task.
+    Not part of the regular workflow. Used for testing and improvement.
+    """
+    return """
+Analyze the provided case input and return STRICT JSON only using this schema:
+{
+  "case_id": "string",
+  "abstained": false,
+  "findings": [
+    {
+      "vuln_type": "string",
+      "location": "string",
+      "confidence": "LOW|MEDIUM|HIGH",
+      "impact": "string",
+      "evidence": ["string"]
+    }
+  ],
+  "reasoning_summary": "short text"
+}
+Rules:
+- Use any of your available context/tools (project prompt, MCP server).
+- If no vulnerability is found, set "abstained": true and "findings": []
 """

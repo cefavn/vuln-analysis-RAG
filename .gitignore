@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 venv/
 .DS_Store
+logs/*.jsonl
 rag_docs/
 .claude/
 RAG-gd1/

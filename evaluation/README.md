@@ -73,8 +73,8 @@ Notes:
 
 ```bash
 .venv/bin/python -m evaluation.build_eval_bundle_from_intake \
-  --intake evaluation/templates/bug_intake.template.yaml \
-  --analysis-input-out evaluation/tmp/analysis_inputs.jsonl \
+  --intake evaluation/testcase2/bug_intake.yaml \
+  --analysis-input-out evaluation/testcase2/analysis_inputs.jsonl \
   --ground-truth-out evaluation/tmp/ground_truth_bug.jsonl
 ```
 
@@ -103,11 +103,27 @@ Save outputs with the schema in `templates/claude_output.template.jsonl`:
 ```bash
 .venv/bin/python -m evaluation.build_judge_packets \
   --ground-truth evaluation/tmp/ground_truth_bug.jsonl \
-  --model-output evaluation/tmp/claude_outputs.jsonl \
+  --model-output evaluation/tmp/claude_outputs_base.jsonl \
   --rubric evaluation/templates/judge_rubric.template.yaml \
-  --system-id rag_gd2 \
+  --system-id base \
   --run-id run-1 \
-  --output evaluation/tmp/judge_packets.jsonl
+  --output evaluation/tmp/judge_packets_base.jsonl
+
+.venv/bin/python -m evaluation.build_judge_packets \
+  --ground-truth evaluation/tmp/ground_truth_bug.jsonl \
+  --model-output evaluation/tmp/claude_outputs_gd1.jsonl \
+  --rubric evaluation/templates/judge_rubric.template.yaml \
+  --system-id gd1 \
+  --run-id run-1 \
+  --output evaluation/tmp/judge_packets_gd1.jsonl
+
+.venv/bin/python -m evaluation.build_judge_packets \
+  --ground-truth evaluation/tmp/ground_truth_bug.jsonl \
+  --model-output evaluation/tmp/claude_outputs_gd2.jsonl \
+  --rubric evaluation/templates/judge_rubric.template.yaml \
+  --system-id gd2 \
+  --run-id run-1 \
+  --output evaluation/tmp/judge_packets_gd2.jsonl
 ```
 
 ## Step 5: Run Judge Model

@@ -1,0 +1,47 @@
+{
+  "case_id": "qemu-virtio-snd-rx-001",
+  "abstained": false,
+  "findings": [
+    {
+      "vuln_type": "heap-buffer-overflow",
+      "location": "virtio_snd_pcm_in_cb — AUD_read() write to buffer->data + buffer->size",
+      "confidence": "MEDIUM",
+      "impact": "Memory Corruption (QEMU process) → potential VM Escape",
+      "evidence": [
+        "stream->params.period_bytes is guest-controlled via VIRTIO_SND_R_PCM_SET_PARAMS and used as both the fill threshold and the per-call read bound in MIN(available, period_bytes - buffer->size)",
+        "The MIN() guard bounds each individual AUD_read call relative to period_bytes, but does NOT bound writes relative to the actual heap allocation size of buffer->data",
+        "If buffer->data is not allocated with exactly period_bytes bytes (or period_bytes is not clamped to the allocation size), cumulative writes across loop iterations will overflow the heap buffer",
+        "No visible validation in the provided excerpt confirms that period_bytes <= sizeof(buffer->data)",
+        "This pattern matches the upstream QEMU virtio-snd pre-fix code; the upstream fix added an explicit check of buffer->size against actual buffer capacity before calling AUD_read",
+        "Structural match to CVE-2021-3546 class: guest-controlled size parameter exceeds host allocation"
+      ]
+    }
+  ],
+  "reasoning_summary": "virtio_snd_pcm_in_cb uses guest-controlled period_bytes as the loop fill threshold and per-call read limit for AUD_read writes into buffer->data. The MIN() guard is internally consistent but does not validate period_bytes against the actual heap allocation of buffer->data. If these differ — which the guest can influence via SET_PARAMS — cumulative AUD_read calls write past the end of the heap buffer. Confidence is MEDIUM because buffer->data allocation is in an opaque function not provided; if the allocator uses period_bytes directly, the paths are identical and the bug is confirmed. This matches the pre-fix QEMU virtio-snd code class."
+}
+{
+  "case_id": "qemu-virtio-net-tx-002",
+  "abstained": false,
+  "findings": [
+    {
+      "vuln_type": "stack_buffer_overflow",
+      "location": "virtio_net_flush_tx — iov_to_buf(out_sg, out_num, 0, &mhdr, n->guest_hdr_len)",
+      "confidence": "HIGH",
+      "impact": "Memory Corruption (QEMU process) — 4-byte stack overflow past struct virtio_net_hdr_mrg_rxbuf; escalates to VM Escape under favorable stack layout or absent stack canaries",
+      "evidence": [
+        "mhdr declared as struct virtio_net_hdr_mrg_rxbuf (sizeof = 12 bytes)",
+        "n->guest_hdr_len assigned sizeof(struct virtio_net_hdr_v1_hash) = 16 bytes when version_1=1 and hash_report=1 (guest-negotiated feature VIRTIO_NET_F_HASH_REPORT)",
+        "iov_to_buf copies up to n->guest_hdr_len bytes into &mhdr with no sizeof(mhdr) cap guard",
+        "Existing check 'if (iov_to_buf(...) < n->guest_hdr_len)' validates descriptor completeness only, not destination buffer capacity",
+        "CVE-2023-3019 documents this exact issue in pre-fix QEMU upstream; fix was to declare mhdr as struct virtio_net_hdr_v1_hash to accommodate the largest possible negotiated header"
+      ]
+    }
+  ],
+  "reasoning_summary": "When the guest negotiates VIRTIO_NET_F_HASH_REPORT, virtio_net_set_mrg_rx_bufs sets guest_hdr_len to sizeof(virtio_net_hdr_v1_hash)=16. In virtio_net_flush_tx, iov_to_buf copies this many bytes into the 12-byte stack object mhdr (typed as virtio_net_hdr_mrg_rxbuf), overflowing 4 bytes. No sizeof(mhdr) bound guards the copy. This matches CVE-2023-3019 exactly. Confidence is HIGH due to the explicit, measurable structural mismatch between destination size and copy length, with no intermediate sanitization."
+}
+{
+  "case_id": "qemu-virtio-snd-rx-003",
+  "abstained": false,
+  "findings": [],
+  "reasoning_summary": "The revised callback is safe against adversarial virtqueue sizing. The max_size guard (iov_size of guest descriptor) fires unconditionally before each AUD_read call, ensuring buffer->size < max_size. The write quantum is further bounded by MIN(available, period_bytes - buffer->size). A guest providing a small descriptor only triggers early buffer return with no write; a guest providing a large descriptor does not bypass the period_bytes bound on AUD_read. No unvalidated Source-to-Sink path exists. This is a true negative control — the fix is effective."
+}

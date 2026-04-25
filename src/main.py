@@ -4,6 +4,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import json
+import time
 from typing import Dict, List
 
 from mcp.server.fastmcp import FastMCP
@@ -15,8 +16,13 @@ from prompts import (
     prompt_triage_module,
     prompt_trace_data_flow,
     prompt_refactor_current_function,
+    prompt_generate_poc,
+    prompt_map_attack_surface,
+    prompt_identify_fuzzing_targets,
+    prompt_benchmark_analysis,
 )
 from config import RETRIEVAL_MIN_SCORE
+from logger import log_call, log_server_start
 
 mcp = FastMCP("QNX-Vuln-RAG")
 
@@ -34,7 +40,6 @@ def _ensure_json_serializable(value):
         json.dumps(value)
         return value
     except (TypeError, ValueError) as e:
-        # If it fails to serialize, convert to string and escape
         if isinstance(value, str):
             return json.loads(json.dumps(value))
         return {"error": f"Value not JSON-serializable: {e}"}
@@ -78,6 +83,7 @@ def query_knowledge(query: str, k: int = 5) -> List[Dict[str, str]]:
         k: Number of chunks to return (1–20, default 5)
     """
     k = min(max(1, k), 20)
+    t0 = time.monotonic()
     try:
         results = get_retriever().query(
             query,
@@ -85,9 +91,14 @@ def query_knowledge(query: str, k: int = 5) -> List[Dict[str, str]]:
             min_score=RETRIEVAL_MIN_SCORE,
         )
         if RETRIEVAL_MIN_SCORE > 0 and not results:
-            return _ensure_json_serializable(_no_evidence(query, RETRIEVAL_MIN_SCORE))
-        return _ensure_json_serializable(results)
+            results = _no_evidence(query, RETRIEVAL_MIN_SCORE)
+        results = _ensure_json_serializable(results)
+        log_call("query_knowledge", {"query": query, "k": k},
+                 ok=True, ms=(time.monotonic() - t0) * 1000, extra={"n": len(results)})
+        return results
     except Exception as e:
+        log_call("query_knowledge", {"query": query, "k": k},
+                 ok=False, ms=(time.monotonic() - t0) * 1000, extra={"error": str(e)})
         return [{"error": f"query_knowledge failed: {e}"}]
 
 
@@ -113,17 +124,22 @@ def search_vulnerability_patterns(vuln_type: str, code_context: str = "", k: int
     """
     k = min(max(1, k), 10)
     combined_query = f"{vuln_type} {code_context}".strip()
+    t0 = time.monotonic()
     try:
         results = get_retriever().query_with_scores(
             combined_query,
             k=k,
-            filter={"type": "vulnerability_pattern"},
+            filter={"type": {"$eq": "vulnerability_pattern"}},
             min_score=RETRIEVAL_MIN_SCORE,
         )
         if RETRIEVAL_MIN_SCORE > 0 and not results:
-            return _no_evidence(combined_query, RETRIEVAL_MIN_SCORE)
+            results = _no_evidence(combined_query, RETRIEVAL_MIN_SCORE)
+        log_call("search_vulnerability_patterns", {"vuln_type": vuln_type, "code_context": code_context, "k": k},
+                 ok=True, ms=(time.monotonic() - t0) * 1000, extra={"n": len(results)})
         return results
     except Exception as e:
+        log_call("search_vulnerability_patterns", {"vuln_type": vuln_type, "k": k},
+                 ok=False, ms=(time.monotonic() - t0) * 1000, extra={"error": str(e)})
         return [{"error": f"search_vulnerability_patterns failed: {e}"}]
 
 
@@ -146,6 +162,7 @@ def search_component_context(component_name: str, extra_context: str = "", k: in
     """
     k = min(max(1, k), 15)
     combined_query = f"{component_name} {extra_context}".strip()
+    t0 = time.monotonic()
     try:
         results = get_retriever().query_with_scores(
             combined_query,
@@ -153,9 +170,13 @@ def search_component_context(component_name: str, extra_context: str = "", k: in
             min_score=RETRIEVAL_MIN_SCORE,
         )
         if RETRIEVAL_MIN_SCORE > 0 and not results:
-            return _no_evidence(combined_query, RETRIEVAL_MIN_SCORE)
+            results = _no_evidence(combined_query, RETRIEVAL_MIN_SCORE)
+        log_call("search_component_context", {"component_name": component_name, "extra_context": extra_context, "k": k},
+                 ok=True, ms=(time.monotonic() - t0) * 1000, extra={"n": len(results)})
         return results
     except Exception as e:
+        log_call("search_component_context", {"component_name": component_name, "k": k},
+                 ok=False, ms=(time.monotonic() - t0) * 1000, extra={"error": str(e)})
         return [{"error": f"search_component_context failed: {e}"}]
 
 
@@ -173,6 +194,7 @@ def query_knowledge_with_scores(query: str, k: int = 5) -> List[Dict[str, str]]:
         k: Number of chunks to return (1–20, default 5)
     """
     k = min(max(1, k), 20)
+    t0 = time.monotonic()
     try:
         results = get_retriever().query_with_scores(
             query,
@@ -180,9 +202,13 @@ def query_knowledge_with_scores(query: str, k: int = 5) -> List[Dict[str, str]]:
             min_score=RETRIEVAL_MIN_SCORE,
         )
         if RETRIEVAL_MIN_SCORE > 0 and not results:
-            return _no_evidence(query, RETRIEVAL_MIN_SCORE)
+            results = _no_evidence(query, RETRIEVAL_MIN_SCORE)
+        log_call("query_knowledge_with_scores", {"query": query, "k": k},
+                 ok=True, ms=(time.monotonic() - t0) * 1000, extra={"n": len(results)})
         return results
     except Exception as e:
+        log_call("query_knowledge_with_scores", {"query": query, "k": k},
+                 ok=False, ms=(time.monotonic() - t0) * 1000, extra={"error": str(e)})
         return [{"error": f"query_knowledge_with_scores failed: {e}"}]
 
 
@@ -215,9 +241,18 @@ def add_knowledge_text(text: str, source_name: str = "analysis_result") -> Dict[
     """
     if not text or not text.strip():
         return {"status": "error", "message": "Text content is empty."}
+    t0 = time.monotonic()
     try:
-        return _get_builder().add_text_to_db(text_content=text, source_name=source_name)
+        result = _get_builder().add_text_to_db(text_content=text, source_name=source_name)
+        chunks_added = int(result.get("chunks_added", 0))
+        log_call("add_knowledge_text", {"source_name": source_name, "text_len": len(text)},
+                 ok=(result.get("status") == "success"),
+                 ms=(time.monotonic() - t0) * 1000,
+                 extra={"chunks": chunks_added})
+        return result
     except Exception as e:
+        log_call("add_knowledge_text", {"source_name": source_name, "text_len": len(text)},
+                 ok=False, ms=(time.monotonic() - t0) * 1000, extra={"error": str(e)})
         return {"status": "error", "message": f"Failed to add knowledge: {e}"}
 
 
@@ -233,11 +268,18 @@ def get_knowledge_info() -> Dict[str, str]:
     Use this to verify the RAG server is connected and healthy before starting
     an analysis session.
     """
+    t0 = time.monotonic()
     try:
         info = get_retriever().get_db_info()
         info["retrieval_min_score"] = str(RETRIEVAL_MIN_SCORE)
+        log_call("get_knowledge_info", {},
+                 ok=(info.get("status") == "connected"),
+                 ms=(time.monotonic() - t0) * 1000,
+                 extra={"status": info.get("status")})
         return info
     except Exception as e:
+        log_call("get_knowledge_info", {},
+                 ok=False, ms=(time.monotonic() - t0) * 1000, extra={"error": str(e)})
         return {"status": "error", "message": str(e)}
 
 
@@ -291,9 +333,56 @@ def refactor_current_function() -> str:
     return _ensure_json_serializable(prompt_text)
 
 
+@mcp.prompt()
+def generate_poc() -> str:
+    """
+    Write a minimal QNX guest-side PoC program for the MEDIUM/HIGH hypothesis from the preceding analysis.
+    Gate: refuses if confidence is LOW or path verdict is OPAQUE — prompts to run trace_data_flow first.
+    Retrieves struct offsets from KB before writing code to avoid hardcoded guesses.
+    Outputs compilable QNX C using shm_open/mmap/mmap_device_memory only — no Linux APIs.
+    """
+    prompt_text = prompt_generate_poc()
+    return _ensure_json_serializable(prompt_text)
+
+
+@mcp.prompt()
+def map_attack_surface() -> str:
+    """
+    Synthesize all findings from the current analysis session into a complete IVC attack surface map.
+    Run AFTER triage_module + at least one analyze_current_function session.
+    Outputs: Mermaid data-flow diagram, attack surface table, thesis-ready summary paragraph.
+    KB update: saves high-level attack surface summary for future sessions.
+    """
+    prompt_text = prompt_map_attack_surface()
+    return _ensure_json_serializable(prompt_text)
+
+
+@mcp.prompt()
+def identify_fuzzing_targets() -> str:
+    """
+    Convert MEDIUM/HIGH confidence hypotheses into actionable fuzzing specifications.
+    Skips LOW confidence and OPAQUE paths. Retrieves field constraints from KB.
+    Outputs per-hypothesis: mutation strategy, seed corpus, crash oracle, QNX harness skeleton.
+    """
+    prompt_text = prompt_identify_fuzzing_targets()
+    return _ensure_json_serializable(prompt_text)
+
+
+@mcp.prompt()
+def benchmark_analysis() -> str:
+    """
+    Run a full analysis workflow on a known-vulnerable function to benchmark retrieval quality and latency.
+    Use this to validate RAG server performance and relevance before starting real analysis.
+    Outputs detailed timing and relevance metrics for each step.
+    """
+    prompt_text = prompt_benchmark_analysis()
+    return _ensure_json_serializable(prompt_text)
+
+
 # ---------------------------------------------------------------------------
 # Entry Point
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    log_server_start(min_score=RETRIEVAL_MIN_SCORE)
     mcp.run()

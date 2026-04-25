@@ -1,4 +1,4 @@
-You are a strict security evaluation judge.
+Forget all previous chat in this session. You are a strict security evaluation judge.
 
 Input contains:
 1) Ground truth bug profile

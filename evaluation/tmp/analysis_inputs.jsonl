@@ -1,0 +1,40 @@
+{
+    "case_id": "qemu-virtio-snd-rx-001",
+    "title": "virtio-snd RX callback (pre-fix upstream code)",
+    "component": "qemu hw/audio/virtio-snd.c",
+    "tags": [
+        "transfer_case",
+        "qemu",
+        "virtio",
+        "guest_to_host",
+        "pre_fix"
+    ],
+    "analysis_input": "CASE TASK:\nReview the host-side audio input callback and determine whether guest-controlled queue state can lead to unsafe memory write. Identify source, sink, trigger condition, and impact.\n\n\nANALYSIS CONTEXT:\nTarget binary: qemu-system-*\nTrust boundary: guest-provided virtqueue descriptors and host audio callback input.\nScope: only this excerpt.\nNote: do not assume vulnerability by default; decide from code behavior.\n\n\nSOURCE / DECOMPILED CODE:\nstatic void virtio_snd_pcm_in_cb(void *data, int available)\n{\n    VirtIOSoundPCMStream *stream = data;\n    VirtIOSoundPCMBuffer *buffer;\n    size_t size;\n\n    WITH_QEMU_LOCK_GUARD(&stream->queue_mutex) {\n        while (!QSIMPLEQ_EMPTY(&stream->queue)) {\n            buffer = QSIMPLEQ_FIRST(&stream->queue);\n            if (!virtio_queue_ready(buffer->vq)) {\n                return;\n            }\n            if (!stream->active) {\n                return_rx_buffer(stream, buffer);\n                continue;\n            }\n\n            for (;;) {\n                size = AUD_read(stream->voice.in,\n                        buffer->data + buffer->size,\n                        MIN(available, (stream->params.period_bytes -\n                                        buffer->size)));\n                if (!size) {\n                    available = 0;\n                    break;\n                }\n                buffer->size += size;\n                available -= size;\n                if (buffer->size >= stream->params.period_bytes) {\n                    return_rx_buffer(stream, buffer);\n                    break;\n                }\n                if (!available) {\n                    break;\n                }\n            }\n            if (!available) {\n                break;\n            }\n        }\n    }\n}"
+}
+{
+    "case_id": "qemu-virtio-net-tx-002",
+    "title": "virtio-net TX header handling (pre-fix upstream code)",
+    "component": "qemu hw/net/virtio-net.c",
+    "tags": [
+        "transfer_case",
+        "qemu",
+        "virtio",
+        "guest_to_host",
+        "pre_fix"
+    ],
+    "analysis_input": "CASE TASK:\nAnalyze whether guest-influenced header length can overflow a host stack object during TX processing. Report source, sink, and any confidentiality or integrity impact.\n\n\nANALYSIS CONTEXT:\nTarget binary: qemu-system-*\nTrust boundary: guest-negotiated features and guest TX descriptors.\nScope: only this excerpt.\nNote: do not assume vulnerability by default; decide from code behavior.\n\n\nSOURCE / DECOMPILED CODE:\nstatic void virtio_net_set_mrg_rx_bufs(VirtIONet *n, int mergeable_rx_bufs,\n                   int version_1, int hash_report)\n{\n  n->mergeable_rx_bufs = mergeable_rx_bufs;\n\n  if (version_1) {\n    n->guest_hdr_len = hash_report ?\n      sizeof(struct virtio_net_hdr_v1_hash) :\n      sizeof(struct virtio_net_hdr_mrg_rxbuf);\n    n->rss_data.populate_hash = !!hash_report;\n  } else {\n    n->guest_hdr_len = n->mergeable_rx_bufs ?\n      sizeof(struct virtio_net_hdr_mrg_rxbuf) :\n      sizeof(struct virtio_net_hdr);\n  }\n}\n\nstatic int32_t virtio_net_flush_tx(VirtIONetQueue *q)\n{\n  for (;;) {\n    ssize_t ret;\n    unsigned int out_num;\n    struct iovec sg[VIRTQUEUE_MAX_SIZE], sg2[VIRTQUEUE_MAX_SIZE + 1], *out_sg;\n    struct virtio_net_hdr_mrg_rxbuf mhdr;\n\n    elem = virtqueue_pop(q->tx_vq, sizeof(VirtQueueElement));\n    if (!elem) {\n      break;\n    }\n\n    out_num = elem->out_num;\n    out_sg = elem->out_sg;\n    if (out_num < 1) {\n      virtio_error(vdev, \"virtio-net header not in first element\");\n      virtqueue_detach_element(q->tx_vq, elem, 0);\n      g_free(elem);\n      return -EINVAL;\n    }\n\n    if (n->has_vnet_hdr) {\n      if (iov_to_buf(out_sg, out_num, 0, &mhdr, n->guest_hdr_len) <\n        n->guest_hdr_len) {\n        virtio_error(vdev, \"virtio-net header incorrect\");\n        virtqueue_detach_element(q->tx_vq, elem, 0);\n        g_free(elem);\n        return -EINVAL;\n      }\n      if (n->needs_vnet_hdr_swap) {\n        virtio_net_hdr_swap(vdev, (void *) &mhdr);\n        sg2[0].iov_base = &mhdr;\n        sg2[0].iov_len = n->guest_hdr_len;\n        out_num = iov_copy(&sg2[1], ARRAY_SIZE(sg2) - 1,\n                 out_sg, out_num,\n                 n->guest_hdr_len, -1);\n        if (out_num == VIRTQUEUE_MAX_SIZE) {\n          goto drop;\n        }\n        out_num += 1;\n        out_sg = sg2;\n      }\n    }\n  }\n}"
+}
+{
+    "case_id": "qemu-virtio-snd-rx-003",
+    "title": "virtio-snd RX callback (post-fix upstream code)",
+    "component": "qemu hw/audio/virtio-snd.c",
+    "tags": [
+        "transfer_case",
+        "qemu",
+        "virtio",
+        "guest_to_host",
+        "post_fix",
+        "negative_control"
+    ],
+    "analysis_input": "CASE TASK:\nEvaluate whether this revised callback path still permits an out-of-bounds write under adversarial virtqueue sizing.\n\n\nANALYSIS CONTEXT:\nTarget binary: qemu-system-*\nTrust boundary: guest-provided virtqueue descriptors and host audio callback input.\nScope: only this excerpt.\nNote: this is a fixed-version candidate and should be judged by code behavior.\n\n\nSOURCE / DECOMPILED CODE:\nstatic void virtio_snd_pcm_in_cb(void *data, int available)\n{\n    VirtIOSoundPCMStream *stream = data;\n    VirtIOSoundPCMBuffer *buffer;\n    size_t size, max_size;\n\n    WITH_QEMU_LOCK_GUARD(&stream->queue_mutex) {\n        while (!QSIMPLEQ_EMPTY(&stream->queue)) {\n            buffer = QSIMPLEQ_FIRST(&stream->queue);\n            if (!virtio_queue_ready(buffer->vq)) {\n                return;\n            }\n            if (!stream->active) {\n                return_rx_buffer(stream, buffer);\n                continue;\n            }\n\n            max_size = iov_size(buffer->elem->in_sg, buffer->elem->in_num);\n            for (;;) {\n                if (buffer->size >= max_size) {\n                    return_rx_buffer(stream, buffer);\n                    break;\n                }\n                size = AUD_read(stream->voice.in,\n                        buffer->data + buffer->size,\n                        MIN(available, (stream->params.period_bytes -\n                                        buffer->size)));\n                if (!size) {\n                    available = 0;\n                    break;\n                }\n                buffer->size += size;\n                available -= size;\n                if (buffer->size >= stream->params.period_bytes) {\n                    return_rx_buffer(stream, buffer);\n                    break;\n                }\n                if (!available) {\n                    break;\n                }\n            }\n            if (!available) {\n                break;\n            }\n        }\n    }\n}"
+}

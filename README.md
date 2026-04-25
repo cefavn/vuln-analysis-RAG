@@ -45,7 +45,7 @@ Edit `.env` with your API keys:
 ```
 PINECONE_API_KEY=your-pinecone-api-key
 OPENAI_API_KEY=your-openai-api-key
-PINECONE_INDEX_NAME=rag-mcp-server
+PINECONE_INDEX_NAME=rag-mcp-gd2
 TESSERACT_PATH=/usr/bin/tesseract
 ```
 
@@ -60,8 +60,16 @@ docker build -t rag-mcp-gd2:latest .
 **Option A: Build from local documents**
 ```bash
 # This processes documents in rag_docs/ and upserts to Pinecone
-docker run --rm -i --network host --env-file .env rag-mcp-server:latest python /app/builder.py
+docker run --rm -i --network host --env-file .env \
+  -v "$PWD/rag_docs:/app/rag_docs" \
+  rag-mcp-gd2:latest python /app/builder.py
 ```
+
+Builder uses incremental source-level indexing:
+- Unchanged sources are skipped (no re-embedding cost)
+- New/changed sources are refreshed and re-embedded
+- If you delete sections/files and need cleanup for a specific source (including a file removed from rag_docs), force refresh it:
+  `FORCE_REFRESH_SOURCES="rag_docs/path/to/file.md"`
 
 **Option B: Use pre-loaded Pinecone index (Web Console)**
 If you've already uploaded documents to Pinecone via the web console, skip the build step and proceed directly to step 4.
@@ -186,11 +194,19 @@ Follow this 3-step search pattern for vulnerability analysis:
 cp my_documentation.pdf rag_docs/
 cp vulnerability_patterns.json rag_docs/
 
-# 2. Rebuild vector database
-docker run --rm -i --env-file .env rag-mcp-server:latest python /app/builder.py
+# 2. Rebuild vector database (incremental: unchanged sources are skipped)
+docker run --rm -i --network host --env-file .env \
+  -v "$PWD/rag_docs:/app/rag_docs" \
+  rag-mcp-gd2:latest python /app/builder.py
+
+# Optional: force refresh one source (useful when content was only removed)
+docker run --rm -i --network host --env-file .env \
+  -e FORCE_REFRESH_SOURCES="rag_docs/my_documentation.pdf" \
+  -v "$PWD/rag_docs:/app/rag_docs" \
+  rag-mcp-gd2:latest python /app/builder.py
 
 # 3. Restart MCP server
-docker run --rm -i --env-file .env rag-mcp-server:latest python /app/main.py
+docker run --rm -i --env-file .env rag-mcp-gd2:latest python /app/main.py
 ```
 
 **Option B: Via Pinecone Web Console**
@@ -230,16 +246,18 @@ results = retriever.query("your search query", k=5)
 **Option A: Full build (build + run server)**
 ```bash
 # Build vector database first
-docker run --rm -i --network host --env-file .env rag-mcp-server:latest python /app/builder.py
+docker run --rm -i --network host --env-file .env \
+  -v "$PWD/rag_docs:/app/rag_docs" \
+  rag-mcp-gd2:latest python /app/builder.py
 
 # Then run the MCP server
-docker run --rm -i --env-file .env rag-mcp-server:latest python /app/main.py
+docker run --rm -i --env-file .env rag-mcp-gd2:latest python /app/main.py
 ```
 
 **Option B: Skip build (use pre-loaded Pinecone)**
 ```bash
 # Run the MCP server directly without building
-docker run --rm -i --env-file .env rag-mcp-server:latest python /app/main.py
+docker run --rm -i --env-file .env rag-mcp-gd2:latest python /app/main.py
 ```
 
 ## Troubleshooting
@@ -288,7 +306,7 @@ docker ps
 ./run_mcp_in_docker.sh
 
 # Test container (should wait for input, Ctrl+C to exit)
-docker run --rm -i --env-file .env rag-mcp-server:latest python -u /app/main.py
+docker run --rm -i --env-file .env rag-mcp-gd2:latest python -u /app/main.py
 ```
 
 ## Project Structure
@@ -303,7 +321,7 @@ docker run --rm -i --env-file .env rag-mcp-server:latest python -u /app/main.py
 |----------|-------------|---------|
 | `PINECONE_API_KEY` | Pinecone API key (required) | - |
 | `OPENAI_API_KEY` | OpenAI API key (required) | - |
-| `PINECONE_INDEX_NAME` | Pinecone index name | `rag-mcp-server` |
+| `PINECONE_INDEX_NAME` | Pinecone index name | `rag-mcp-gd2` |
 | `EMBEDDING_MODEL` | OpenAI embedding model | `text-embedding-3-small` |
 | `TESSERACT_PATH` | Path to Tesseract OCR binary | `/usr/bin/tesseract` |
 | `CHUNK_SIZE` | Parent chunk size in characters | `1000` |

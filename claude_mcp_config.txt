@@ -21,12 +21,11 @@ This uses the plugin's HTTP endpoint directly (which we already fixed to be MCP-
 
 
 "rag-knowledge-gd1": {
-  "command": "/home/mbelin/datn/vuln-analysis-RAG/RAG-gd1/run_mcp_in_docker.sh",
-},
-"rag-knowledge-gd2": {
-  "command": "/home/mbelin/datn/vuln-analysis-RAG/run_mcp_in_docker.sh",
-  "env": {
-    "RAG_MODE": "gd2",
-    "RETRIEVAL_MIN_SCORE": "0.65"
-  }
+  "command": "/home/mbelin/datn/vuln-analysis-RAG/RAG-gd1/run_mcp_in_docker.sh"
 }
+	"rag-knowledge-gd2": {
+	  "command": "/home/mbelin/datn/vuln-analysis-RAG/run_mcp_in_docker.sh",
+	  "env": {
+	    "RETRIEVAL_MIN_SCORE": "0.65"
+	  }
+	}
