@@ -1,26 +1,26 @@
 {
-"case_id": "qemu-virtio-snd-rx-001",
-"system_id": "base",
-"run_id": "run-1",
-"criteria": {
-"c1_context_correct": 1.0,
-"c2_identify_source": 1.0,
-"c3_trace_source_to_sink": 1.0,
-"c4_vuln_hypothesis": 1.0,
-"c5_root_cause_explanation": 1.0,
-"c6_correct_location": 1.0,
-"c7_pattern_or_cve_reference": 1.0,
-"c8_trigger_and_poc_concept": 1.0,
-"c9_impact_classification": 1.0,
-"c10_low_false_positive": 1.0
-},
-"attack_surface": {
-"proposed": 1,
-"validated_manual": 0,
-"validated_fuzzing": 0
-},
-"verdict": "supported",
-"rationale": "The model correctly identifies the heap buffer overflow in the virtio-snd RX path. It accurately pinpoints the function and sink operation (AUD_read), identifies the guest-controlled period_bytes as the source of the overflow, and explains the root cause (missing bounds check against actual buffer capacity) in alignment with the ground truth for CVE-2024-7730."
+  "case_id": "qemu-virtio-snd-rx-001",
+  "system_id": "base",
+  "run_id": "run-1",
+  "criteria": {
+    "c1_context_correct": 1.0,
+    "c2_identify_source": 1.0,
+    "c3_trace_source_to_sink": 1.0,
+    "c4_vuln_hypothesis": 1.0,
+    "c5_root_cause_explanation": 0.8,
+    "c6_correct_location": 1.0,
+    "c7_pattern_or_cve_reference": 0.0,
+    "c8_trigger_and_poc_concept": 0.8,
+    "c9_impact_classification": 1.0,
+    "c10_low_false_positive": 1.0
+  },
+  "attack_surface": {
+    "proposed": 1,
+    "validated_manual": 0,
+    "validated_fuzzing": 0
+  },
+  "verdict": "supported",
+  "rationale": "The base model correctly identifies the out-of-bounds write and the dangerous sink. However, its root cause explanation is slightly generic—focusing on `period_bytes` exceeding allocation rather than explicitly detailing the virtqueue descriptor sizing mechanics. It also lacks any pattern or CVE references."
 }
 {
   "case_id": "qemu-virtio-net-tx-002",
@@ -30,10 +30,10 @@
     "c1_context_correct": 1.0,
     "c2_identify_source": 1.0,
     "c3_trace_source_to_sink": 1.0,
-    "c4_vuln_hypothesis": 1.0,
+    "c4_vuln_hypothesis": 0.8,
     "c5_root_cause_explanation": 1.0,
     "c6_correct_location": 1.0,
-    "c7_pattern_or_cve_reference": 1.0,
+    "c7_pattern_or_cve_reference": 0.0,
     "c8_trigger_and_poc_concept": 1.0,
     "c9_impact_classification": 1.0,
     "c10_low_false_positive": 1.0
@@ -44,7 +44,7 @@
     "validated_fuzzing": 0
   },
   "verdict": "supported",
-  "rationale": "The model accurately identifies the stack buffer overflow (CVE-2023-6693) in virtio-net. It correctly traces the source (guest-negotiated features affecting guest_hdr_len) to the sink (iov_to_buf writing into the undersized mhdr stack buffer). It also identifies the secondary impact on sg2[0].iov_len mentioned in the ground truth."
+  "rationale": "The base model correctly captures the core vulnerability logic, the location, and the secondary sink propagation. However, it mistakenly labels the vulnerability class as a 'Heap Buffer Overflow' in the finding title (despite correctly noting the buffer is stack-allocated in the text), and it lacks any CVE or historical pattern references."
 }
 {
 "case_id": "qemu-virtio-snd-rx-003",

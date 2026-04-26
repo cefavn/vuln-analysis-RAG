@@ -455,8 +455,9 @@ Do NOT call add_knowledge_text — fuzzing specs belong in an engineering docume
 
 def prompt_benchmark_analysis() -> str:
     """
-    Benchmark prompt to evaluate LLM performance on a specific analysis task.
-    Not part of the regular workflow. Used for testing and improvement.
+    Neutral output formatter for benchmarking gd1 vs gd2.
+    Must NOT guide reasoning — reasoning is the system prompt's job.
+    Schema extended to capture cascade/heuristic fields that gd2-v2 may produce.
     """
     return """
 Analyze the provided case input and return STRICT JSON only using this schema:
@@ -469,10 +470,12 @@ Analyze the provided case input and return STRICT JSON only using this schema:
       "location": "string",
       "confidence": "LOW|MEDIUM|HIGH",
       "impact": "string",
+      "compounding_impact": "string or null",
+      "pattern_basis": "string or null",
       "evidence": ["string"]
     }
   ],
-  "reasoning_summary": "short text"
+  "reasoning_summary": "string"
 }
 Rules:
 - Use any of your available context/tools (project prompt, MCP server).

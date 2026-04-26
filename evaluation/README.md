@@ -14,7 +14,7 @@ Benchmark pipeline for QNX vulnerability-analysis RAG system.
    - `analysis_inputs.jsonl` for Claude runs
    - `ground_truth_bug.jsonl` for judge comparison
 3. Run Claude on the cases using the fixed analysis prompt.
-4. Build judge packets from ground truth + Claude output + shared rubric.
+4. Build judge packets from ground truth + model outputs + shared rubric.
 5. Ask a separate model to score each packet.
 6. Aggregate and report scores.
 
@@ -100,6 +100,21 @@ Save outputs with the schema in `templates/claude_output.template.jsonl`:
 
 ## Step 4: Build Judge Packets
 
+Recommended (one-shot for multiple models):
+
+```bash
+.venv/bin/python -m evaluation.build_judge_packets \
+   --ground-truth evaluation/tmp/ground_truth_bug.jsonl \
+   --model-output-spec base=evaluation/tmp/claude_outputs_base.jsonl \
+   --model-output-spec gd1=evaluation/tmp/claude_outputs_gd1.jsonl \
+   --model-output-spec gd2=evaluation/tmp/claude_outputs_gd2.jsonl \
+   --rubric evaluation/templates/judge_rubric.template.yaml \
+   --run-id run-1 \
+   --output evaluation/tmp/judge_packets_all_models.jsonl
+```
+
+Legacy mode (single model per command, still supported):
+
 ```bash
 .venv/bin/python -m evaluation.build_judge_packets \
   --ground-truth evaluation/tmp/ground_truth_bug.jsonl \
@@ -133,9 +148,17 @@ Use a separate model and fixed prompt:
 - Prompt file: `evaluation/templates/judge_prompt_short.txt`
 - Rubric file: `evaluation/templates/judge_rubric.template.yaml`
 
-For each row in judge packets, ask judge model to return strict JSON and save to:
+For each row in judge packets, ask judge model to return strict JSON.
 
-- `evaluation/tmp/judge_results.jsonl`
+If using one-shot Step 4 output, save combined judge outputs to:
+
+- `evaluation/tmp/judge_results_all_models.jsonl`
+
+If using legacy per-model packets, save one result file per model, then aggregate together in Step 6:
+
+- `evaluation/tmp/judge_results_base.jsonl`
+- `evaluation/tmp/judge_results_gd1.jsonl`
+- `evaluation/tmp/judge_results_gd2.jsonl`
 
 Judge output format reference:
 
@@ -143,21 +166,59 @@ Judge output format reference:
 
 ## Step 6: Aggregate Scores
 
+Combined judge results file:
+
 ```bash
 .venv/bin/python -m evaluation.aggregate_judge_results \
-  --judge-results evaluation/tmp/judge_results.jsonl \
-  --rubric evaluation/templates/judge_rubric.template.yaml \
-  --system-id rag_gd2 \
-  --run-id run-1 \
-  --output-dir evaluation/reports/judge/rag_gd2/run-1
+   --judge-results evaluation/tmp/judge_results_all_models.jsonl \
+   --judge-packets evaluation/tmp/judge_packets_all_models.jsonl \
+   --rubric evaluation/templates/judge_rubric.template.yaml \
+   --run-id run-1 \
+   --output-dir evaluation/reports/judge/compare/run-1
+```
+
+Or merge legacy per-model judge result files in one command:
+
+```bash
+.venv/bin/python -m evaluation.aggregate_judge_results \
+   --judge-results evaluation/tmp/judge_results_base.jsonl \
+   --judge-results evaluation/tmp/judge_results_gd1.jsonl \
+   --judge-results evaluation/tmp/judge_results_gd2.jsonl \
+   --system-alias rag_gd1=gd1 \
+   --system-alias rag_gd2=gd2 \
+   --rubric evaluation/templates/judge_rubric.template.yaml \
+   --run-id run-1 \
+   --output-dir evaluation/reports/judge/compare/run-1
+```
+
+Single-model mode is still supported:
+
+```bash
+.venv/bin/python -m evaluation.aggregate_judge_results \
+   --judge-results evaluation/tmp/judge_results_gd2.jsonl \
+   --rubric evaluation/templates/judge_rubric.template.yaml \
+   --system-id rag_gd2 \
+   --run-id run-1 \
+   --output-dir evaluation/reports/judge/rag_gd2/run-1
 ```
 
 Generated per run:
 
 - `judge_summary.json`
 - `judge_aggregate.csv`
+- `judge_model_ranking.csv` (multi-model mode)
 - `judge_criteria_summary.csv`
 - `judge_case_scores.csv`
+- `judge_case_comparison.csv` (multi-model mode, side-by-side)
+
+Ranking logic (multi-model mode):
+
+1. Sort by `weighted_score_mean` (descending)
+2. Tie-break by `weighted_score_median`
+3. Tie-break by attack-surface precision
+4. Final tie-break by `system_id`
+
+`judge_model_ranking.csv` also includes short textual explanations for each rank.
 
 ## Recommended Reporting Practice
 
@@ -185,3 +246,7 @@ Generated per run:
 3. JSON parse errors in model output files
    - Ensure each row is valid JSON object.
    - Use `templates/claude_output.template.jsonl` and `templates/judge_results.template.jsonl` as strict references.
+
+4. Inconsistent model names (`system_id`) across rows
+   - Keep `system_id` stable per model (e.g. always `base`, `gd1`, `gd2`) to avoid split aggregates.
+   - If legacy files are inconsistent, use `--system-alias old=new` when aggregating.

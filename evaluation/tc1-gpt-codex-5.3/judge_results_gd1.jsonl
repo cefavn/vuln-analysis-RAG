@@ -1,5 +1,29 @@
 {
-  "case_id": "qemu-virtio-snd-rx-001",
+"case_id": "qemu-virtio-snd-rx-001",
+"system_id": "rag_gd1",
+"run_id": "run-1",
+"criteria": {
+"c1_context_correct": 1.0,
+"c2_identify_source": 1.0,
+"c3_trace_source_to_sink": 1.0,
+"c4_vuln_hypothesis": 1.0,
+"c5_root_cause_explanation": 1.0,
+"c6_correct_location": 1.0,
+"c7_pattern_or_cve_reference": 1.0,
+"c8_trigger_and_poc_concept": 1.0,
+"c9_impact_classification": 1.0,
+"c10_low_false_positive": 1.0
+},
+"attack_surface": {
+"proposed": 1,
+"validated_manual": 0,
+"validated_fuzzing": 0
+},
+"verdict": "supported",
+"rationale": "The model output provides a high-fidelity analysis of the buffer overflow in virtio-snd. It correctly identifies the role of period_bytes as a guest-controlled source and notes the lack of bounds checking against the physical buffer capacity of the virtqueue element. The trigger concept and impact assessment align precisely with the ground truth for CVE-2024-7730."
+}
+{
+  "case_id": "qemu-virtio-net-tx-002",
   "system_id": "gd1",
   "run_id": "run-1",
   "criteria": {
@@ -15,36 +39,12 @@
     "c10_low_false_positive": 1.0
   },
   "attack_surface": {
-    "proposed": 3,
-    "validated_manual": 0,
-    "validated_fuzzing": 0
-  },
-  "verdict": "supported",
-  "rationale": "gd1 accurately identifies the core vulnerability, clearly distinguishing between the `period_bytes` parameter and the actual descriptor backing buffer length. It provides a strong trigger concept. The secondary finding regarding integer wrap demonstrates strong heuristic reasoning, though it lacks specific CVE pattern references."
-}
-{
-  "case_id": "qemu-virtio-net-tx-002",
-  "system_id": "gd1",
-  "run_id": "run-1",
-  "criteria": {
-    "c1_context_correct": 1.0,
-    "c2_identify_source": 1.0,
-    "c3_trace_source_to_sink": 1.0,
-    "c4_vuln_hypothesis": 1.0,
-    "c5_root_cause_explanation": 1.0,
-    "c6_correct_location": 1.0,
-    "c7_pattern_or_cve_reference": 0.8,
-    "c8_trigger_and_poc_concept": 1.0,
-    "c9_impact_classification": 1.0,
-    "c10_low_false_positive": 1.0
-  },
-  "attack_surface": {
     "proposed": 1,
     "validated_manual": 0,
     "validated_fuzzing": 0
   },
   "verdict": "supported",
-  "rationale": "gd1 provides a highly accurate analysis. It correctly identifies the stack buffer overflow on `mhdr`, properly traces the source to guest-negotiated features, and successfully identifies the secondary sink (`sg2[0].iov_len`). It misses explicitly naming similar CVE patterns but perfectly explains the bug mechanism."
+  "rationale": "gd1 correctly identifies the stack buffer overflow, the guest-controlled source, and traces it to the primary sink (iov_to_buf) as well as the secondary sink (sg2[0].iov_len). However, it lacks specific CVE references or exact byte-level structural calculations."
 }
 {
   "case_id": "qemu-virtio-snd-rx-003",

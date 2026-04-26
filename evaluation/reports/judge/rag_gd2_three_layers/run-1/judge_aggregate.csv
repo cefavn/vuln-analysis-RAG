@@ -1,2 +1,0 @@
-cases,rubric_total_weight,weighted_score_mean,weighted_score_median,weighted_score_mean_percent,attack_surface_proposed_total,attack_surface_validated_manual_total,attack_surface_validated_fuzzing_total,attack_surface_precision_manual,attack_surface_precision_fuzzing
-1,21.0,1.0,1.0,100.0,2,0,0,0.0,0.0

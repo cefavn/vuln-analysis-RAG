@@ -20,7 +20,7 @@ See:
 - `evaluation/templates/bug_intake.template.yaml` to curate bug cases from Internet sources
 - `evaluation/build_eval_bundle_from_intake.py` to generate analysis input + ground truth
 - `evaluation/build_judge_packets.py` and `evaluation/aggregate_judge_results.py` for judge scoring pipeline
-- `evaluation/judge_compare.py` for paired A/B statistical comparison
+- `evaluation/reports/judge/*` outputs for per-model ranking and side-by-side case comparison
 
 ## Requirements
 

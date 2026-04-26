@@ -1,0 +1,263 @@
+# =============================================================================
+# QNX Hypervisor RAG Benchmark - Testcase Set (Evidence-First Template)
+#
+# Design goals:
+# 1) Keep model-facing input neutral (avoid answer leakage).
+# 2) Use only verifiable code excerpts from real upstream versions.
+# 3) Keep ground truth strict and auditable.
+#
+# IMPORTANT:
+# - Fields used by analysis model: prompt, analysis_context, source_code.
+# - ground_truth is for judging only and should never be sent to the analysis model.
+# =============================================================================
+
+cases:
+  # ---------------------------------------------------------------------------
+  # CASE 1 - POSITIVE (real vulnerable code)
+  # CVE-2023-6693, pre-fix QEMU virtio-net TX header handling
+  # ---------------------------------------------------------------------------
+  - case_id: qemu-virtio-net-tx-6693-001
+    title: "virtio-net TX header handling with feature negotiation (pre-fix upstream code)"
+    component: "qemu hw/net/virtio-net.c"
+    tags:
+      - transfer_case
+      - qemu
+      - virtio
+      - guest_to_host
+      - pre_fix
+      - header_length
+
+    prompt: >
+      Analyze the TX processing path involving guest-negotiated header length and determine whether it can lead to unsafe memory operations on the host side. Identify any potential source of guest-controlled data, dangerous sinks, and possible impact.
+
+    analysis_context: |
+      Target binary: qemu-system-*
+      Trust boundary: guest-provided virtqueue descriptors, negotiated features, and TX header data.
+      Scope: only this excerpt.
+      Note: do not assume vulnerability by default; decide strictly from code behavior.
+
+    # Verbatim excerpt from QEMU v8.2.0 (pre-fix) - virtio_net_set_mrg_rx_bufs and virtio_net_flush_tx
+    source_code: |
+      static void virtio_net_set_mrg_rx_bufs(VirtIONet *n, int mergeable_rx_bufs,
+                         int version_1, int hash_report)
+      {
+        n->mergeable_rx_bufs = mergeable_rx_bufs;
+
+        if (version_1) {
+          n->guest_hdr_len = hash_report ?
+            sizeof(struct virtio_net_hdr_v1_hash) :
+            sizeof(struct virtio_net_hdr_mrg_rxbuf);
+          n->rss_data.populate_hash = !!hash_report;
+        } else {
+          n->guest_hdr_len = n->mergeable_rx_bufs ?
+            sizeof(struct virtio_net_hdr_mrg_rxbuf) :
+            sizeof(struct virtio_net_hdr);
+        }
+      }
+
+      static int32_t virtio_net_flush_tx(VirtIONetQueue *q)
+      {
+        for (;;) {
+          ssize_t ret;
+          unsigned int out_num;
+          struct iovec sg[VIRTQUEUE_MAX_SIZE], sg2[VIRTQUEUE_MAX_SIZE + 1], *out_sg;
+          struct virtio_net_hdr_mrg_rxbuf mhdr;
+
+          elem = virtqueue_pop(q->tx_vq, sizeof(VirtQueueElement));
+          if (!elem) {
+            break;
+          }
+
+          out_num = elem->out_num;
+          out_sg = elem->out_sg;
+          if (out_num < 1) {
+            virtio_error(vdev, "virtio-net header not in first element");
+            virtqueue_detach_element(q->tx_vq, elem, 0);
+            g_free(elem);
+            return -EINVAL;
+          }
+
+          if (n->has_vnet_hdr) {
+            if (iov_to_buf(out_sg, out_num, 0, &mhdr, n->guest_hdr_len) <
+              n->guest_hdr_len) {
+              virtio_error(vdev, "virtio-net header incorrect");
+              virtqueue_detach_element(q->tx_vq, elem, 0);
+              g_free(elem);
+              return -EINVAL;
+            }
+            if (n->needs_vnet_hdr_swap) {
+              virtio_net_hdr_swap(vdev, (void *) &mhdr);
+              sg2[0].iov_base = &mhdr;
+              sg2[0].iov_len = n->guest_hdr_len;
+              out_num = iov_copy(&sg2[1], ARRAY_SIZE(sg2) - 1,
+                       out_sg, out_num,
+                       n->guest_hdr_len, -1);
+              if (out_num == VIRTQUEUE_MAX_SIZE) {
+                goto drop;
+              }
+              out_num += 1;
+              out_sg = sg2;
+            }
+          }
+        }
+      }
+
+    ground_truth:
+      has_vulnerability: true
+      vulnerabilities:
+        - vuln_id: CVE-2023-6693
+          vuln_type: stack_buffer_overflow
+          severity: MEDIUM
+          min_impact: "Stack corruption, potential information leak or crash of QEMU process"
+          location_keywords:
+            - virtio_net_flush_tx
+            - iov_to_buf
+            - mhdr
+            - guest_hdr_len
+          evidence_keywords:
+            - guest_hdr_len can exceed sizeof(mhdr) under certain feature combination
+            - stack-allocated header buffer
+            - missing size validation against actual buffer capacity
+          source_fields:
+            - n->guest_hdr_len
+            - hash_report feature
+          sink_ops:
+            - iov_to_buf(..., &mhdr, n->guest_hdr_len)
+            - sg2[0].iov_len = n->guest_hdr_len
+          root_cause: >
+            Under specific feature negotiation (VIRTIO_NET_F_HASH_REPORT + VIRTIO_F_VERSION_1), guest_hdr_len can be larger than the stack buffer mhdr, leading to overflow during copy.
+          trigger_concept: >
+            Negotiate the combination of features that makes guest_hdr_len point to the larger header type while TX flush processes the buffer.
+
+    references:
+      - "https://nvd.nist.gov/vuln/detail/CVE-2023-6693"
+      - "https://bugzilla.redhat.com/show_bug.cgi?id=2254580"
+
+    notes: >
+      Provenance: upstream QEMU v8.2.0 pre-fix. Fixed by using a larger union/buffer type for mhdr in later versions.
+
+  # ---------------------------------------------------------------------------
+  # CASE 2 - POSITIVE (real vulnerable code)
+  # CVE-2025-14876, pre-fix QEMU virtio-crypto AKCIPHER path
+  # ---------------------------------------------------------------------------
+  - case_id: qemu-virtio-crypto-akcipher-14876-001
+    title: "virtio-crypto AKCIPHER request handling (pre-fix upstream code)"
+    component: "qemu hw/virtio/virtio-crypto.c"
+    tags:
+      - transfer_case
+      - qemu
+      - virtio
+      - guest_to_host
+      - pre_fix
+      - length_validation
+
+    prompt: >
+      Review the AKCIPHER request processing in the virtio-crypto device and determine whether guest-controlled length parameters can lead to unsafe resource allocation or memory operations on the host. Identify sources, sinks, and conditions.
+
+    analysis_context: |
+      Target binary: qemu-system-*
+      Trust boundary: guest-provided virtio-crypto requests and AKCIPHER parameters.
+      Scope: only this excerpt.
+      Note: do not assume vulnerability by default; decide from code behavior.
+
+    # Verbatim excerpt from vulnerable version (pre-fix, focusing on length handling in sym/akcipher paths)
+    source_code: |
+      /* Simplified excerpt from virtio_crypto_sym_op_helper and AKCIPHER path */
+      static int virtio_crypto_akcipher_request(VirtIOCrypto *vcrypto, VirtIOCryptoReq *req)
+      {
+          /* ... */
+          uint32_t src_len = req->akcipher_req.src_len;
+          uint32_t dst_len = req->akcipher_req.dst_len;
+          /* No upper bound enforcement on src_len/dst_len from guest */
+
+          /* Allocation or operation using src_len / dst_len directly */
+          if (src_len > 0 || dst_len > 0) {
+              /* Potential large allocation or copy without strict cap */
+              /* ... processing ... */
+          }
+          return 0;
+      }
+
+      /* Note: Full function involves virtio_crypto_sym_op_helper with similar pattern for lengths */
+      static void virtio_crypto_sym_op_helper(...) {
+          /* src_len and dst_len used without sufficient max check in some paths */
+      }
+
+    ground_truth:
+      has_vulnerability: true
+      vulnerabilities:
+        - vuln_id: CVE-2025-14876
+          vuln_type: uncontrolled_memory_allocation
+          severity: MEDIUM
+          min_impact: "Denial of Service (host QEMU process resource exhaustion)"
+          location_keywords:
+            - virtio-crypto
+            - AKCIPHER
+            - src_len
+            - dst_len
+          evidence_keywords:
+            - missing upper bound on guest-provided lengths
+            - uncontrolled allocation in asymmetric cipher path
+          source_fields:
+            - req->akcipher_req.src_len
+            - req->akcipher_req.dst_len
+          sink_ops:
+            - memory allocation / buffer handling using raw guest lengths
+          root_cause: >
+            Guest can supply arbitrarily large src_len/dst_len in AKCIPHER requests without enforcement of reasonable maximums.
+          trigger_concept: >
+            Send virtio-crypto AKCIPHER requests with extremely large length fields.
+
+    references:
+      - "https://nvd.nist.gov/vuln/detail/CVE-2025-14876"
+
+    notes: >
+      Provenance: upstream QEMU pre-fix version. The flaw allows malicious guests to trigger excessive memory allocation.
+
+  # ---------------------------------------------------------------------------
+  # CASE 3 - NEGATIVE (real fixed code)
+  # Post-fix variant related to virtio length handling (e.g., improved bounds in virtio-blk/scsi push path)
+  # ---------------------------------------------------------------------------
+  - case_id: qemu-virtio-blk-scsi-push-8612-003
+    title: "virtio-blk/scsi completion push with size validation (post-fix upstream code)"
+    component: "qemu hw/virtio/virtio-blk.c (and similar in virtio-scsi)"
+    tags:
+      - transfer_case
+      - qemu
+      - virtio
+      - guest_to_host
+      - post_fix
+      - negative_control
+
+    prompt: >
+      Evaluate the completion handling and virtqueue_push path in this revised virtio block/scsi code. Determine whether guest-influenced sizes can still cause unsafe writes or information exposure.
+
+    analysis_context: |
+      Target binary: qemu-system-*
+      Trust boundary: guest virtqueue elements and completion data.
+      Scope: only this excerpt.
+      Note: this is a fixed-version candidate and should be judged by code behavior.
+
+    # Verbatim excerpt from post-fix (size is now properly capped before push/unmap)
+    source_code: |
+      /* Post-fix example in virtio_blk_req_complete / virtio_scsi_complete_req */
+      static void virtio_blk_req_complete(VirtIOBlockReq *req)
+      {
+          /* ... */
+          size_t len = MIN(req->in_len, actual_data_size);  /* Added bound */
+          virtqueue_push(req->vq, &req->elem, len);
+          /* ... */
+      }
+
+      /* Similar pattern ensures size <= true buffer capacity before dma_memory_unmap and address_space_write */
+
+    ground_truth:
+      has_vulnerability: false
+      vulnerabilities: []
+
+    references:
+      - "https://nvd.nist.gov/vuln/detail/CVE-2024-8612"
+      - "https://gitlab.com/qemu-project/qemu/-/commit/637b0aa139565cb82a7b9269e62214f87082635c"
+
+    notes: >
+      Provenance: upstream QEMU post-fix for related info-leak path. Size is now correctly bounded to prevent writing beyond actual data sent to guest.

@@ -1,26 +1,26 @@
 {
-  "case_id": "qemu-virtio-snd-rx-001",
-  "system_id": "gd2",
-  "run_id": "run-1",
-  "criteria": {
-    "c1_context_correct": 1.0,
-    "c2_identify_source": 1.0,
-    "c3_trace_source_to_sink": 1.0,
-    "c4_vuln_hypothesis": 1.0,
-    "c5_root_cause_explanation": 1.0,
-    "c6_correct_location": 1.0,
-    "c7_pattern_or_cve_reference": 1.0,
-    "c8_trigger_and_poc_concept": 1.0,
-    "c9_impact_classification": 1.0,
-    "c10_low_false_positive": 1.0
-  },
-  "attack_surface": {
-    "proposed": 1,
-    "validated_manual": 0,
-    "validated_fuzzing": 0
-  },
-  "verdict": "supported",
-  "rationale": "gd2 provides a flawless analysis. It perfectly captures the mismatch between the guest-controlled descriptor capacity and the host-side `period_bytes` size bound. It effectively leverages the zero-day fallback to cite analogous virtio descriptor mismatch CVEs and clearly details the compounding impact of the write offset."
+"case_id": "qemu-virtio-snd-rx-001",
+"system_id": "rag_gd2",
+"run_id": "run-1",
+"criteria": {
+"c1_context_correct": 1.0,
+"c2_identify_source": 1.0,
+"c3_trace_source_to_sink": 1.0,
+"c4_vuln_hypothesis": 1.0,
+"c5_root_cause_explanation": 1.0,
+"c6_correct_location": 1.0,
+"c7_pattern_or_cve_reference": 1.0,
+"c8_trigger_and_poc_concept": 1.0,
+"c9_impact_classification": 1.0,
+"c10_low_false_positive": 1.0
+},
+"attack_surface": {
+"proposed": 1,
+"validated_manual": 0,
+"validated_fuzzing": 0
+},
+"verdict": "supported",
+"rationale": "The model analysis is highly accurate and aligns perfectly with the ground truth for CVE-2024-7730. It correctly identifies the vulnerable function, the guest-controlled source (period_bytes), and the specific heap buffer overflow mechanism caused by the lack of capacity checks at the AUD_read sink."
 }
 {
   "case_id": "qemu-virtio-net-tx-002",
@@ -44,7 +44,7 @@
     "validated_fuzzing": 0
   },
   "verdict": "supported",
-  "rationale": "gd2 delivers an exceptional, mathematically precise analysis. It explicitly calculates the byte-level discrepancy between the structures (12 bytes vs 20 bytes), clearly outlines the compounding secondary sink impact, and properly utilizes the zero-day heuristic fallback to reference analogous virtio header mismatch CVEs."
+  "rationale": "gd2 provides an outstanding analysis that perfectly implements the optimized prompt instructions. It explicitly breaks down the exact byte sizes (12 vs 20 bytes), clearly details the compounding impact (secondary sink), and effectively utilizes the heuristic fallback to reference related CVE families."
 }
 {
   "case_id": "qemu-virtio-snd-rx-003",
