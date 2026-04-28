@@ -8,6 +8,6 @@ venv/
 logs/*.jsonl
 rag_docs/
 .claude/
-RAG-gd1/
+RAG-gd1/ghidra_docs/
 run-result/
 diagrams/
