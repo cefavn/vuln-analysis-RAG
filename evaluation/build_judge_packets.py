@@ -98,6 +98,90 @@ def _write_jsonl(path: Path, rows: List[Dict[str, Any]]) -> None:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
+def _build_per_model_packets(
+    system_inputs: List[Tuple[str, str]],
+    gt_by_case: Dict[str, Dict[str, Any]],
+    rubric: Dict[str, Any],
+    run_id: str,
+) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+    """One packet per (case_id, system_id). Judge scores each model independently."""
+    packets: List[Dict[str, Any]] = []
+    missing_by_system: Dict[str, int] = {}
+
+    for system_id, model_output_path in system_inputs:
+        out_by_case = _load_jsonl_by_case(model_output_path)
+        missing_count = 0
+
+        for case_id, gt in gt_by_case.items():
+            model_row = out_by_case.get(case_id)
+            if model_row is None:
+                missing_count += 1
+                model_row = {"case_id": case_id, "abstained": True, "findings": [], "raw_output": ""}
+
+            packets.append(
+                {
+                    "case_id": case_id,
+                    "system_id": system_id,
+                    "run_id": run_id,
+                    "ground_truth": gt,
+                    "model_output": model_row,
+                    "rubric": rubric["rubric"],
+                    "judge_instructions": (
+                        "Score each criterion in [0,1] based on alignment between ground truth and model output. "
+                        "Return strict JSON using judge_output_schema."
+                    ),
+                }
+            )
+
+        missing_by_system[system_id] = missing_count
+
+    return packets, missing_by_system
+
+
+def _build_compare_packets(
+    system_inputs: List[Tuple[str, str]],
+    gt_by_case: Dict[str, Dict[str, Any]],
+    rubric: Dict[str, Any],
+    run_id: str,
+) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+    """One packet per case_id containing all model outputs. Judge scores and ranks all models together."""
+    missing_by_system: Dict[str, int] = {sid: 0 for sid, _ in system_inputs}
+    outputs_by_system: Dict[str, Dict[str, Dict[str, Any]]] = {}
+
+    for system_id, model_output_path in system_inputs:
+        outputs_by_system[system_id] = _load_jsonl_by_case(model_output_path)
+
+    packets: List[Dict[str, Any]] = []
+    for case_id, gt in gt_by_case.items():
+        models: List[Dict[str, Any]] = []
+        for system_id, _ in system_inputs:
+            model_row = outputs_by_system[system_id].get(case_id)
+            if model_row is None:
+                missing_by_system[system_id] += 1
+                model_row = {"case_id": case_id, "abstained": True, "findings": [], "raw_output": ""}
+            models.append({"system_id": system_id, "model_output": model_row})
+
+        system_ids = [m["system_id"] for m in models]
+        packets.append(
+            {
+                "case_id": case_id,
+                "run_id": run_id,
+                "ground_truth": gt,
+                "models": models,
+                "rubric": rubric["rubric"],
+                "output_schema": rubric.get("compare_judge_output_schema", {}),
+                "judge_instructions": (
+                    f"You are scoring {len(models)} model outputs for the same case.\n"
+                    "For each model, score all criteria in [0,1] and produce a verdict + rationale.\n"
+                    f"Then rank the models from best to worst. Systems to evaluate: {system_ids}.\n"
+                    "Return strict JSON using output_schema."
+                ),
+            }
+        )
+
+    return packets, missing_by_system
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build judge packets from ground truth + model output + rubric")
     parser.add_argument("--ground-truth", required=True, help="Ground truth JSONL")
@@ -117,47 +201,31 @@ def main() -> None:
     parser.add_argument("--rubric", required=True, help="Rubric YAML file")
     parser.add_argument("--system-id", help="System id (single-model mode), e.g. rag_gd1_context_only")
     parser.add_argument("--run-id", default="run-1", help="Run id")
+    parser.add_argument(
+        "--compare",
+        action="store_true",
+        help=(
+            "Compare mode: bundle all model outputs per case into one packet so the judge "
+            "can score and rank them relatively. Requires --model-output-spec with >=2 models."
+        ),
+    )
     parser.add_argument("--output", required=True, help="Judge packet JSONL output")
     args = parser.parse_args()
 
     system_inputs = _resolve_system_inputs(args)
+
+    if args.compare and len(system_inputs) < 2:
+        raise JudgePacketError("--compare requires at least 2 models via --model-output-spec")
+
     gt_by_case = _load_jsonl_by_case(args.ground_truth)
     rubric = _load_rubric(args.rubric)
 
-    packets: List[Dict[str, Any]] = []
-    missing_by_system: Dict[str, int] = {}
-
-    for system_id, model_output_path in system_inputs:
-        out_by_case = _load_jsonl_by_case(model_output_path)
-        missing_count = 0
-
-        for case_id, gt in gt_by_case.items():
-            model_row = out_by_case.get(case_id)
-            if model_row is None:
-                missing_count += 1
-                model_row = {
-                    "case_id": case_id,
-                    "abstained": True,
-                    "findings": [],
-                    "raw_output": "",
-                }
-
-            packets.append(
-                {
-                    "case_id": case_id,
-                    "system_id": system_id,
-                    "run_id": args.run_id,
-                    "ground_truth": gt,
-                    "model_output": model_row,
-                    "rubric": rubric["rubric"],
-                    "judge_instructions": (
-                        "Score each criterion in [0,1] based on alignment between ground truth and model output. "
-                        "Return strict JSON using judge_output_schema."
-                    ),
-                }
-            )
-
-        missing_by_system[system_id] = missing_count
+    if args.compare:
+        packets, missing_by_system = _build_compare_packets(system_inputs, gt_by_case, rubric, args.run_id)
+        mode = "compare"
+    else:
+        packets, missing_by_system = _build_per_model_packets(system_inputs, gt_by_case, rubric, args.run_id)
+        mode = "per_model"
 
     out_path = Path(args.output)
     _write_jsonl(out_path, packets)
@@ -166,8 +234,9 @@ def main() -> None:
         json.dumps(
             {
                 "status": "ok",
+                "mode": mode,
                 "systems": [system_id for system_id, _ in system_inputs],
-                "cases_per_system": len(gt_by_case),
+                "cases": len(gt_by_case),
                 "packets_total": len(packets),
                 "missing_model_output_cases": missing_by_system,
                 "output": str(out_path),

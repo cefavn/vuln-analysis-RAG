@@ -1,0 +1,123 @@
+cases:
+  - case_id: "qemu-virtio-snd-001"
+    title: "QEMU virtio-snd PCM input callback bounds check missing"
+    component: "qemu hw/audio/virtio-snd.c"
+    tags:
+      - qemu
+      - virtio
+      - audio
+      - guest_to_host
+      - buffer_overflow
+    analysis_input: |
+      CASE TASK: Examine the virtio-snd PCM input callback in the QEMU host and determine if guest-controlled data could cause unsafe memory writes. Identify the data source, write sink, trigger conditions, and potential impact.
+    analysis_context: |
+      Target binary: qemu-system-*. Trust boundary: virtio queue descriptors and guest-provided audio input. Scope: only this code excerpt. Note: do not assume a vulnerability; analyze code logic.
+    source_code: |
+      static void virtio_snd_pcm_in_cb(void *data, int available)
+      {
+          VirtIOSoundPCMStream *stream = data;
+          VirtIOSoundPCMBuffer *buffer;
+          size_t size;
+
+          WITH_QEMU_LOCK_GUARD(&stream->queue_mutex) {
+              while (!QSIMPLEQ_EMPTY(&stream->queue)) {
+                  buffer = QSIMPLEQ_FIRST(&stream->queue);
+                  if (!virtio_queue_ready(buffer->vq)) {
+                      return;
+                  }
+                  if (!stream->active) {
+                      return_rx_buffer(stream, buffer);
+                      continue;
+                  }
+
+                  for (;;) {
+                      size = AUD_read(stream->voice.in,
+                              buffer->data + buffer->size,
+                              MIN(available, (stream->params.period_bytes - buffer->size)));
+                      if (!size) {
+                          available = 0;
+                          break;
+                      }
+                      buffer->size += size;
+                      available -= size;
+                      if (buffer->size >= stream->params.period_bytes) {
+                          return_rx_buffer(stream, buffer);
+                          break;
+                      }
+                      if (!available) {
+                          break;
+                      }
+                  }
+                  if (!available) {
+                      break;
+                  }
+              }
+          }
+      }
+    ground_truth:
+      source: "Missing buffer size validation in virtio_snd_pcm_in_cb (no check that available space is enough)【8†L203-L210】."
+      sink: "Writing audio data to `buffer->data + buffer->size` without verifying capacity (out-of-bounds write)【8†L203-L210】."
+      trigger: "Guest sets virtio queue element size equal to virtio_snd_pcm_status (available space = 0), causing the write to overflow【38†L1-L4】."
+      impact: "Heap-based buffer overflow (host QEMU); memory corruption enabling potential code execution【38†L1-L4】."
+
+  - case_id: "qemu-virtio-crypto-001"
+    title: "QEMU virtio-crypto AKCIPHER length bound missing (pre-fix)"
+    component: "qemu hw/virtio/virtio-crypto.c"
+    tags:
+      - qemu
+      - virtio
+      - crypto
+      - guest_to_host
+      - resource_exhaustion
+    analysis_input: |
+      CASE TASK: Review the QEMU virtio-crypto AKCIPHER request handler and determine whether guest-controlled parameters can lead to unsafe resource usage. Identify the source of unbounded input, the sink (resource allocation), trigger conditions, and potential impact.
+    analysis_context: |
+      Target binary: qemu-system-*. Trust boundary: guest virtio-crypto requests to the hypervisor. Scope: code related to AKCIPHER requests. Note: do not assume a vulnerability; analyze resource handling.
+    source_code: |
+      /* Pre-fix code for virtio-crypto AKCIPHER handler (simplified) */
+      static CryptoDevSymOperation *virtio_crypto_akcipher_op_helper(VirtIODevice *vdev, CryptoDev *vcrypto, CryptoDevGuestAkCipherRequest *sr_req)
+      {
+          size_t len = sr_req->akcipher_request.length;
+          /* No check that 'len' <= vcrypto->conf.max_size */
+          CryptoDevAcaOpInfo *op = g_malloc0(sizeof(CryptoDevAcaOpInfo) + len);
+          if (!op) {
+              return NULL;
+          }
+          /* ... process AKCIPHER using op ... */
+          return &op->base;
+      }
+    ground_truth:
+      source: "Missing maximum length check on guest AKCIPHER request (no vcrypto->conf.max_size validation)【25†L106-L110】."
+      sink: "Unbounded memory allocation using guest-controlled length parameter in g_malloc0【25†L106-L110】."
+      trigger: "Malicious guest sends AKCIPHER request with excessively large length value【25†L106-L110】."
+      impact: "Uncontrolled allocation leads to resource exhaustion (QEMU crash/DoS)【25†L106-L110】."
+
+  - case_id: "qemu-vnc-websock-001"
+    title: "QEMU VNC WebSocket handshake use-after-free (pre-fix)"
+    component: "qemu vnc/qemu-websocket.c"
+    tags:
+      - qemu
+      - vnc
+      - websocket
+      - use_after_free
+      - network
+    analysis_input: |
+      CASE TASK: Inspect the QEMU VNC WebSocket handshake code path and determine whether premature channel teardown can cause a callback on freed memory. Identify the source object, sink (callback on freed resource), trigger condition, and impact.
+    analysis_context: |
+      Target binary: qemu-system-*. Trust boundary: network client connecting to VNC WebSocket. Scope: QIOChannelWebsock handshake handling code. Note: do not assume vulnerability by default.
+    source_code: |
+      /* Simplified QEMU WebSocket handshake callback (pre-fix) */
+      static void qio_channel_websock_callback(GSource *src, int unused)
+      {
+          QIOChannelWebsock *ws = (QIOChannelWebsock *)src->callback_data;
+          if (!complete_websocket_handshake(ws)) {
+              qio_channel_websock_free(ws); /* Channel freed during handshake */
+              return;
+          }
+          /* The GSource remains active even if ws is freed */
+      }
+    ground_truth:
+      source: "QIOChannelWebsock object is freed during an incomplete handshake (event source still active)【39†L1-L4】."
+      sink: "Deferred GSource callback operates on the freed channel, causing use-after-free【39†L1-L4】."
+      trigger: "Client disconnects or timeout before handshake completes, leaving channel freed but event source registered【39†L7-L10】."
+      impact: "Use-after-free crash in host QEMU (denial-of-service)【39†L1-L4】."

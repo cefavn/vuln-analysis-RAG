@@ -1,0 +1,4 @@
+system_id,cases,weighted_score_mean,weighted_score_median,weighted_score_mean_percent,attack_surface_proposed_total,attack_surface_validated_manual_total,attack_surface_validated_fuzzing_total,attack_surface_precision_manual,attack_surface_precision_fuzzing
+gd2,3,1.0,1.0,100.0,2,0,0,0.0,0.0
+base,3,0.914286,0.87619,91.429,2,0,0,0.0,0.0
+gd1,3,0.723809,0.952381,72.381,7,0,0,0.0,0.0

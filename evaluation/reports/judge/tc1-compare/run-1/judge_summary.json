@@ -1,0 +1,511 @@
+{
+  "meta": {
+    "mode": "multi_system",
+    "run_id": "run-1",
+    "systems": [
+      "gd2",
+      "base",
+      "gd1"
+    ],
+    "judge_results_paths": [
+      "evaluation/tc1-gpt-5.3-codex/judge_results_base.jsonl",
+      "evaluation/tc1-gpt-5.3-codex/judge_results_gd1.jsonl",
+      "evaluation/tc1-gpt-5.3-codex/judge_results_gd2.jsonl"
+    ],
+    "judge_packets_path": null,
+    "system_aliases": {},
+    "rubric_path": "evaluation/templates/judge_rubric.template.yaml",
+    "tool": "evaluation.aggregate_judge_results"
+  },
+  "ranking": [
+    {
+      "system_id": "gd2",
+      "cases": 3,
+      "weighted_score_mean": 1.0,
+      "weighted_score_median": 1.0,
+      "weighted_score_mean_percent": 100.0,
+      "rank_score_mean": 1.0,
+      "rank_score_mean_percent": 100.0,
+      "composite_score": 1.0,
+      "composite_score_percent": 100.0,
+      "attack_surface_precision_manual": 0.0,
+      "attack_surface_precision_fuzzing": 0.0,
+      "rank": 1,
+      "explanation": "Highest composite score (100.00%) [criteria: 100.00%, rank bonus: 100.00%] with strongest criteria: c3_trace_source_to_sink=1.000, c4_vuln_hypothesis=1.000, c10_low_false_positive=1.000."
+    },
+    {
+      "system_id": "base",
+      "cases": 3,
+      "weighted_score_mean": 0.914286,
+      "weighted_score_median": 0.87619,
+      "weighted_score_mean_percent": 91.429,
+      "rank_score_mean": 0.333333,
+      "rank_score_mean_percent": 33.333,
+      "composite_score": 0.856191,
+      "composite_score_percent": 85.619,
+      "attack_surface_precision_manual": 0.0,
+      "attack_surface_precision_fuzzing": 0.0,
+      "rank": 2,
+      "explanation": "Composite score 85.62% (criteria: 91.43%, rank bonus: 33.33%); trails rank 1 by 14.38 points; largest criterion gaps: c7_pattern_or_cve_reference (-0.667), c4_vuln_hypothesis (-0.067)."
+    },
+    {
+      "system_id": "gd1",
+      "cases": 3,
+      "weighted_score_mean": 0.723809,
+      "weighted_score_median": 0.952381,
+      "weighted_score_mean_percent": 72.381,
+      "rank_score_mean": 0.333333,
+      "rank_score_mean_percent": 33.333,
+      "composite_score": 0.684761,
+      "composite_score_percent": 68.476,
+      "attack_surface_precision_manual": 0.0,
+      "attack_surface_precision_fuzzing": 0.0,
+      "rank": 3,
+      "explanation": "Composite score 68.48% (criteria: 72.38%, rank bonus: 33.33%); trails rank 1 by 31.52 points; largest criterion gaps: c7_pattern_or_cve_reference (-0.567), c10_low_false_positive (-0.333)."
+    }
+  ],
+  "systems": {
+    "gd2": {
+      "aggregate": {
+        "cases": 3,
+        "rubric_total_weight": 21.0,
+        "weighted_score_mean": 1.0,
+        "weighted_score_median": 1.0,
+        "weighted_score_mean_percent": 100.0,
+        "attack_surface_proposed_total": 2,
+        "attack_surface_validated_manual_total": 0,
+        "attack_surface_validated_fuzzing_total": 0,
+        "attack_surface_precision_manual": 0.0,
+        "attack_surface_precision_fuzzing": 0.0
+      },
+      "criteria_summary": {
+        "c1_context_correct": {
+          "weight": 1.0,
+          "mean": 1.0,
+          "median": 1.0
+        },
+        "c2_identify_source": {
+          "weight": 2.0,
+          "mean": 1.0,
+          "median": 1.0
+        },
+        "c3_trace_source_to_sink": {
+          "weight": 3.0,
+          "mean": 1.0,
+          "median": 1.0
+        },
+        "c4_vuln_hypothesis": {
+          "weight": 3.0,
+          "mean": 1.0,
+          "median": 1.0
+        },
+        "c5_root_cause_explanation": {
+          "weight": 2.0,
+          "mean": 1.0,
+          "median": 1.0
+        },
+        "c6_correct_location": {
+          "weight": 2.0,
+          "mean": 1.0,
+          "median": 1.0
+        },
+        "c7_pattern_or_cve_reference": {
+          "weight": 2.0,
+          "mean": 1.0,
+          "median": 1.0
+        },
+        "c8_trigger_and_poc_concept": {
+          "weight": 2.0,
+          "mean": 1.0,
+          "median": 1.0
+        },
+        "c9_impact_classification": {
+          "weight": 2.0,
+          "mean": 1.0,
+          "median": 1.0
+        },
+        "c10_low_false_positive": {
+          "weight": 2.0,
+          "mean": 1.0,
+          "median": 1.0
+        }
+      },
+      "cases": [
+        {
+          "case_id": "qemu-virtio-snd-rx-001",
+          "system_id": "gd2",
+          "run_id": "run-1",
+          "weighted_score": 1.0,
+          "weighted_score_percent": 100.0,
+          "criteria": {
+            "c1_context_correct": 1.0,
+            "c2_identify_source": 1.0,
+            "c3_trace_source_to_sink": 1.0,
+            "c4_vuln_hypothesis": 1.0,
+            "c5_root_cause_explanation": 1.0,
+            "c6_correct_location": 1.0,
+            "c7_pattern_or_cve_reference": 1.0,
+            "c8_trigger_and_poc_concept": 1.0,
+            "c9_impact_classification": 1.0,
+            "c10_low_false_positive": 1.0
+          },
+          "attack_surface": {
+            "proposed": 1,
+            "validated_manual": 0,
+            "validated_fuzzing": 0
+          },
+          "verdict": "supported",
+          "rationale": "gd2 provides a flawless analysis. It perfectly captures the mismatch between the guest-controlled descriptor capacity and the host-side `period_bytes` size bound. It effectively leverages the zero-day fallback to cite analogous virtio descriptor mismatch CVEs and clearly details the compounding impact of the write offset."
+        },
+        {
+          "case_id": "qemu-virtio-net-tx-002",
+          "system_id": "gd2",
+          "run_id": "run-1",
+          "weighted_score": 1.0,
+          "weighted_score_percent": 100.0,
+          "criteria": {
+            "c1_context_correct": 1.0,
+            "c2_identify_source": 1.0,
+            "c3_trace_source_to_sink": 1.0,
+            "c4_vuln_hypothesis": 1.0,
+            "c5_root_cause_explanation": 1.0,
+            "c6_correct_location": 1.0,
+            "c7_pattern_or_cve_reference": 1.0,
+            "c8_trigger_and_poc_concept": 1.0,
+            "c9_impact_classification": 1.0,
+            "c10_low_false_positive": 1.0
+          },
+          "attack_surface": {
+            "proposed": 1,
+            "validated_manual": 0,
+            "validated_fuzzing": 0
+          },
+          "verdict": "supported",
+          "rationale": "gd2 delivers an exceptional, mathematically precise analysis. It explicitly calculates the byte-level discrepancy between the structures (12 bytes vs 20 bytes), clearly outlines the compounding secondary sink impact, and properly utilizes the zero-day heuristic fallback to reference analogous virtio header mismatch CVEs."
+        },
+        {
+          "case_id": "qemu-virtio-snd-rx-003",
+          "system_id": "gd2",
+          "run_id": "run-1",
+          "weighted_score": 1.0,
+          "weighted_score_percent": 100.0,
+          "criteria": {
+            "c1_context_correct": 1.0,
+            "c2_identify_source": 1.0,
+            "c3_trace_source_to_sink": 1.0,
+            "c4_vuln_hypothesis": 1.0,
+            "c5_root_cause_explanation": 1.0,
+            "c6_correct_location": 1.0,
+            "c7_pattern_or_cve_reference": 1.0,
+            "c8_trigger_and_poc_concept": 1.0,
+            "c9_impact_classification": 1.0,
+            "c10_low_false_positive": 1.0
+          },
+          "attack_surface": {
+            "proposed": 0,
+            "validated_manual": 0,
+            "validated_fuzzing": 0
+          },
+          "verdict": "supported",
+          "rationale": "The model correctly identifies the case as a 'true negative control.' It accurately analyzes the impact of the added max_size guard and correctly concludes that the previously existing vulnerability path is now closed. This perfectly aligns with the ground truth for the post-fix code."
+        }
+      ]
+    },
+    "base": {
+      "aggregate": {
+        "cases": 3,
+        "rubric_total_weight": 21.0,
+        "weighted_score_mean": 0.914286,
+        "weighted_score_median": 0.87619,
+        "weighted_score_mean_percent": 91.429,
+        "attack_surface_proposed_total": 2,
+        "attack_surface_validated_manual_total": 0,
+        "attack_surface_validated_fuzzing_total": 0,
+        "attack_surface_precision_manual": 0.0,
+        "attack_surface_precision_fuzzing": 0.0
+      },
+      "criteria_summary": {
+        "c1_context_correct": {
+          "weight": 1.0,
+          "mean": 1.0,
+          "median": 1.0
+        },
+        "c2_identify_source": {
+          "weight": 2.0,
+          "mean": 1.0,
+          "median": 1.0
+        },
+        "c3_trace_source_to_sink": {
+          "weight": 3.0,
+          "mean": 1.0,
+          "median": 1.0
+        },
+        "c4_vuln_hypothesis": {
+          "weight": 3.0,
+          "mean": 0.933333,
+          "median": 1.0
+        },
+        "c5_root_cause_explanation": {
+          "weight": 2.0,
+          "mean": 0.933333,
+          "median": 1.0
+        },
+        "c6_correct_location": {
+          "weight": 2.0,
+          "mean": 1.0,
+          "median": 1.0
+        },
+        "c7_pattern_or_cve_reference": {
+          "weight": 2.0,
+          "mean": 0.333333,
+          "median": 0.0
+        },
+        "c8_trigger_and_poc_concept": {
+          "weight": 2.0,
+          "mean": 0.933333,
+          "median": 1.0
+        },
+        "c9_impact_classification": {
+          "weight": 2.0,
+          "mean": 1.0,
+          "median": 1.0
+        },
+        "c10_low_false_positive": {
+          "weight": 2.0,
+          "mean": 1.0,
+          "median": 1.0
+        }
+      },
+      "cases": [
+        {
+          "case_id": "qemu-virtio-snd-rx-001",
+          "system_id": "base",
+          "run_id": "run-1",
+          "weighted_score": 0.866667,
+          "weighted_score_percent": 86.667,
+          "criteria": {
+            "c1_context_correct": 1.0,
+            "c2_identify_source": 1.0,
+            "c3_trace_source_to_sink": 1.0,
+            "c4_vuln_hypothesis": 1.0,
+            "c5_root_cause_explanation": 0.8,
+            "c6_correct_location": 1.0,
+            "c7_pattern_or_cve_reference": 0.0,
+            "c8_trigger_and_poc_concept": 0.8,
+            "c9_impact_classification": 1.0,
+            "c10_low_false_positive": 1.0
+          },
+          "attack_surface": {
+            "proposed": 1,
+            "validated_manual": 0,
+            "validated_fuzzing": 0
+          },
+          "verdict": "supported",
+          "rationale": "The base model correctly identifies the out-of-bounds write and the dangerous sink. However, its root cause explanation is slightly generic—focusing on `period_bytes` exceeding allocation rather than explicitly detailing the virtqueue descriptor sizing mechanics. It also lacks any pattern or CVE references."
+        },
+        {
+          "case_id": "qemu-virtio-net-tx-002",
+          "system_id": "base",
+          "run_id": "run-1",
+          "weighted_score": 0.87619,
+          "weighted_score_percent": 87.619,
+          "criteria": {
+            "c1_context_correct": 1.0,
+            "c2_identify_source": 1.0,
+            "c3_trace_source_to_sink": 1.0,
+            "c4_vuln_hypothesis": 0.8,
+            "c5_root_cause_explanation": 1.0,
+            "c6_correct_location": 1.0,
+            "c7_pattern_or_cve_reference": 0.0,
+            "c8_trigger_and_poc_concept": 1.0,
+            "c9_impact_classification": 1.0,
+            "c10_low_false_positive": 1.0
+          },
+          "attack_surface": {
+            "proposed": 1,
+            "validated_manual": 0,
+            "validated_fuzzing": 0
+          },
+          "verdict": "supported",
+          "rationale": "The base model correctly captures the core vulnerability logic, the location, and the secondary sink propagation. However, it mistakenly labels the vulnerability class as a 'Heap Buffer Overflow' in the finding title (despite correctly noting the buffer is stack-allocated in the text), and it lacks any CVE or historical pattern references."
+        },
+        {
+          "case_id": "qemu-virtio-snd-rx-003",
+          "system_id": "base",
+          "run_id": "run-1",
+          "weighted_score": 1.0,
+          "weighted_score_percent": 100.0,
+          "criteria": {
+            "c1_context_correct": 1.0,
+            "c2_identify_source": 1.0,
+            "c3_trace_source_to_sink": 1.0,
+            "c4_vuln_hypothesis": 1.0,
+            "c5_root_cause_explanation": 1.0,
+            "c6_correct_location": 1.0,
+            "c7_pattern_or_cve_reference": 1.0,
+            "c8_trigger_and_poc_concept": 1.0,
+            "c9_impact_classification": 1.0,
+            "c10_low_false_positive": 1.0
+          },
+          "attack_surface": {
+            "proposed": 0,
+            "validated_manual": 0,
+            "validated_fuzzing": 0
+          },
+          "verdict": "supported",
+          "rationale": "The model correctly identifies the snippet as a negative control. It accurately assesses that the newly added max_size guard acts as a proper boundary check, preventing the out-of-bounds write."
+        }
+      ]
+    },
+    "gd1": {
+      "aggregate": {
+        "cases": 3,
+        "rubric_total_weight": 21.0,
+        "weighted_score_mean": 0.723809,
+        "weighted_score_median": 0.952381,
+        "weighted_score_mean_percent": 72.381,
+        "attack_surface_proposed_total": 7,
+        "attack_surface_validated_manual_total": 0,
+        "attack_surface_validated_fuzzing_total": 0,
+        "attack_surface_precision_manual": 0.0,
+        "attack_surface_precision_fuzzing": 0.0
+      },
+      "criteria_summary": {
+        "c1_context_correct": {
+          "weight": 1.0,
+          "mean": 1.0,
+          "median": 1.0
+        },
+        "c2_identify_source": {
+          "weight": 2.0,
+          "mean": 1.0,
+          "median": 1.0
+        },
+        "c3_trace_source_to_sink": {
+          "weight": 3.0,
+          "mean": 0.666667,
+          "median": 1.0
+        },
+        "c4_vuln_hypothesis": {
+          "weight": 3.0,
+          "mean": 0.666667,
+          "median": 1.0
+        },
+        "c5_root_cause_explanation": {
+          "weight": 2.0,
+          "mean": 0.666667,
+          "median": 1.0
+        },
+        "c6_correct_location": {
+          "weight": 2.0,
+          "mean": 1.0,
+          "median": 1.0
+        },
+        "c7_pattern_or_cve_reference": {
+          "weight": 2.0,
+          "mean": 0.433333,
+          "median": 0.5
+        },
+        "c8_trigger_and_poc_concept": {
+          "weight": 2.0,
+          "mean": 0.666667,
+          "median": 1.0
+        },
+        "c9_impact_classification": {
+          "weight": 2.0,
+          "mean": 0.666667,
+          "median": 1.0
+        },
+        "c10_low_false_positive": {
+          "weight": 2.0,
+          "mean": 0.666667,
+          "median": 1.0
+        }
+      },
+      "cases": [
+        {
+          "case_id": "qemu-virtio-snd-rx-001",
+          "system_id": "gd1",
+          "run_id": "run-1",
+          "weighted_score": 0.952381,
+          "weighted_score_percent": 95.238,
+          "criteria": {
+            "c1_context_correct": 1.0,
+            "c2_identify_source": 1.0,
+            "c3_trace_source_to_sink": 1.0,
+            "c4_vuln_hypothesis": 1.0,
+            "c5_root_cause_explanation": 1.0,
+            "c6_correct_location": 1.0,
+            "c7_pattern_or_cve_reference": 0.5,
+            "c8_trigger_and_poc_concept": 1.0,
+            "c9_impact_classification": 1.0,
+            "c10_low_false_positive": 1.0
+          },
+          "attack_surface": {
+            "proposed": 3,
+            "validated_manual": 0,
+            "validated_fuzzing": 0
+          },
+          "verdict": "supported",
+          "rationale": "gd1 accurately identifies the core vulnerability, clearly distinguishing between the `period_bytes` parameter and the actual descriptor backing buffer length. It provides a strong trigger concept. The secondary finding regarding integer wrap demonstrates strong heuristic reasoning, though it lacks specific CVE pattern references."
+        },
+        {
+          "case_id": "qemu-virtio-net-tx-002",
+          "system_id": "gd1",
+          "run_id": "run-1",
+          "weighted_score": 0.980952,
+          "weighted_score_percent": 98.095,
+          "criteria": {
+            "c1_context_correct": 1.0,
+            "c2_identify_source": 1.0,
+            "c3_trace_source_to_sink": 1.0,
+            "c4_vuln_hypothesis": 1.0,
+            "c5_root_cause_explanation": 1.0,
+            "c6_correct_location": 1.0,
+            "c7_pattern_or_cve_reference": 0.8,
+            "c8_trigger_and_poc_concept": 1.0,
+            "c9_impact_classification": 1.0,
+            "c10_low_false_positive": 1.0
+          },
+          "attack_surface": {
+            "proposed": 1,
+            "validated_manual": 0,
+            "validated_fuzzing": 0
+          },
+          "verdict": "supported",
+          "rationale": "gd1 provides a highly accurate analysis. It correctly identifies the stack buffer overflow on `mhdr`, properly traces the source to guest-negotiated features, and successfully identifies the secondary sink (`sg2[0].iov_len`). It misses explicitly naming similar CVE patterns but perfectly explains the bug mechanism."
+        },
+        {
+          "case_id": "qemu-virtio-snd-rx-003",
+          "system_id": "gd1",
+          "run_id": "run-1",
+          "weighted_score": 0.238095,
+          "weighted_score_percent": 23.81,
+          "criteria": {
+            "c1_context_correct": 1.0,
+            "c2_identify_source": 1.0,
+            "c3_trace_source_to_sink": 0.0,
+            "c4_vuln_hypothesis": 0.0,
+            "c5_root_cause_explanation": 0.0,
+            "c6_correct_location": 1.0,
+            "c7_pattern_or_cve_reference": 0.0,
+            "c8_trigger_and_poc_concept": 0.0,
+            "c9_impact_classification": 0.0,
+            "c10_low_false_positive": 0.0
+          },
+          "attack_surface": {
+            "proposed": 3,
+            "validated_manual": 0,
+            "validated_fuzzing": 0
+          },
+          "verdict": "not_supported",
+          "rationale": "The model fails significantly by identifying three vulnerabilities in a negative control case (fixed code). It claims 'HIGH' confidence for a heap corruption path that is explicitly blocked by the max_size guard added in the post-fix excerpt. This is a severe false positive."
+        }
+      ]
+    }
+  },
+  "case_comparison": {
+    "rows": 3,
+    "columns": 23
+  }
+}

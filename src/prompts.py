@@ -455,9 +455,9 @@ Do NOT call add_knowledge_text — fuzzing specs belong in an engineering docume
 
 def prompt_benchmark_analysis() -> str:
     """
-    Neutral output formatter for benchmarking gd1 vs gd2.
+    Neutral output formatter for benchmarking base vs gd1 vs gd2.
     Must NOT guide reasoning — reasoning is the system prompt's job.
-    Schema extended to capture cascade/heuristic fields that gd2-v2 may produce.
+    Field guidance describes output format only; no examples or reasoning hints.
     """
     return """
 Analyze the provided case input and return STRICT JSON only using this schema:
@@ -470,8 +470,11 @@ Analyze the provided case input and return STRICT JSON only using this schema:
       "location": "string",
       "confidence": "LOW|MEDIUM|HIGH",
       "impact": "string",
-      "compounding_impact": "string or null",
       "pattern_basis": "string or null",
+      "source_fields": ["string"],
+      "source_to_sink": "string",
+      "root_cause": "string",
+      "trigger_strategy": "string",
       "evidence": ["string"]
     }
   ],
@@ -480,4 +483,6 @@ Analyze the provided case input and return STRICT JSON only using this schema:
 Rules:
 - Use any of your available context/tools (project prompt, MCP server).
 - If no vulnerability is found, set "abstained": true and "findings": []
+- For each finding: source_fields, source_to_sink, root_cause, and trigger_strategy are required — do not leave empty or null.
+- pattern_basis: cite a specific CVE, CVE family, or pattern class if known. Null only if genuinely unknown.
 """

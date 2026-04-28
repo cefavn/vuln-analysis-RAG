@@ -29,11 +29,9 @@ Benchmark pipeline for QNX vulnerability-analysis RAG system.
 ### Templates
 
 - `templates/bug_intake.template.yaml`
-- `templates/analysis_prompt_short.txt`
-- `templates/judge_prompt_short.txt`
+- `templates/analysis_prompt.txt`
+- `templates/judge_prompt.txt`
 - `templates/judge_rubric.template.yaml`
-- `templates/claude_output.template.jsonl`
-- `templates/judge_results.template.jsonl`
 
 ## Step 0: Prepare Environment
 
@@ -73,8 +71,8 @@ Notes:
 
 ```bash
 .venv/bin/python -m evaluation.build_eval_bundle_from_intake \
-  --intake evaluation/testcase2/bug_intake.yaml \
-  --analysis-input-out evaluation/testcase2/analysis_inputs.jsonl \
+  --intake evaluation/tmp/bug_intake.yaml \
+  --analysis-input-out evaluation/tmp/analysis_inputs.jsonl \
   --ground-truth-out evaluation/tmp/ground_truth_bug.jsonl
 ```
 
@@ -87,7 +85,7 @@ Outputs:
 
 Use the fixed prompt for all cases:
 
-- `evaluation/templates/analysis_prompt_short.txt`
+- `evaluation/templates/analysis_prompt.txt`
 
 For each row in `analysis_inputs.jsonl`, send:
 
@@ -100,7 +98,25 @@ Save outputs with the schema in `templates/claude_output.template.jsonl`:
 
 ## Step 4: Build Judge Packets
 
-Recommended (one-shot for multiple models):
+Two modes are available. **Compare mode is recommended** for multi-model evaluation because the judge sees all outputs at once and provides relative ranking.
+
+### Compare mode (recommended for multi-model)
+
+One packet per case containing all model outputs. The judge scores each model AND ranks them relatively.
+
+```bash
+.venv/bin/python -m evaluation.build_judge_packets \
+   --ground-truth evaluation/tmp/ground_truth_bug.jsonl \
+   --model-output-spec base=evaluation/tmp/claude_outputs_base.jsonl \
+   --model-output-spec gd1=evaluation/tmp/claude_outputs_gd1.jsonl \
+   --model-output-spec gd2=evaluation/tmp/claude_outputs_gd2.jsonl \
+   --rubric evaluation/templates/judge_rubric.template.yaml \
+   --run-id run-1 \
+   --compare \
+   --output evaluation/tmp/judge_packets_compare.jsonl
+```
+
+### Per-model mode (legacy, single judge call per model per case)
 
 ```bash
 .venv/bin/python -m evaluation.build_judge_packets \
@@ -113,85 +129,52 @@ Recommended (one-shot for multiple models):
    --output evaluation/tmp/judge_packets_all_models.jsonl
 ```
 
-Legacy mode (single model per command, still supported):
-
-```bash
-.venv/bin/python -m evaluation.build_judge_packets \
-  --ground-truth evaluation/tmp/ground_truth_bug.jsonl \
-  --model-output evaluation/tmp/claude_outputs_base.jsonl \
-  --rubric evaluation/templates/judge_rubric.template.yaml \
-  --system-id base \
-  --run-id run-1 \
-  --output evaluation/tmp/judge_packets_base.jsonl
-
-.venv/bin/python -m evaluation.build_judge_packets \
-  --ground-truth evaluation/tmp/ground_truth_bug.jsonl \
-  --model-output evaluation/tmp/claude_outputs_gd1.jsonl \
-  --rubric evaluation/templates/judge_rubric.template.yaml \
-  --system-id gd1 \
-  --run-id run-1 \
-  --output evaluation/tmp/judge_packets_gd1.jsonl
-
-.venv/bin/python -m evaluation.build_judge_packets \
-  --ground-truth evaluation/tmp/ground_truth_bug.jsonl \
-  --model-output evaluation/tmp/claude_outputs_gd2.jsonl \
-  --rubric evaluation/templates/judge_rubric.template.yaml \
-  --system-id gd2 \
-  --run-id run-1 \
-  --output evaluation/tmp/judge_packets_gd2.jsonl
-```
-
 ## Step 5: Run Judge Model
 
-Use a separate model and fixed prompt:
+Use a separate model with the fixed prompt:
 
-- Prompt file: `evaluation/templates/judge_prompt_short.txt`
+- Prompt file: `evaluation/templates/judge_prompt.txt`
 - Rubric file: `evaluation/templates/judge_rubric.template.yaml`
 
-For each row in judge packets, ask judge model to return strict JSON.
+For each packet row, ask the judge model to return strict JSON.
 
-If using one-shot Step 4 output, save combined judge outputs to:
+**Compare mode** (one packet per case): judge returns `compare_judge_output_schema` — a `results` list (one entry per model with scores) plus a `ranking` list. Save to:
 
-- `evaluation/tmp/judge_results_all_models.jsonl`
+- `evaluation/tmp/judge_results_compare.jsonl`
 
-If using legacy per-model packets, save one result file per model, then aggregate together in Step 6:
+**Per-model mode** (one packet per case per model): judge returns `judge_output_schema`. Save to:
 
-- `evaluation/tmp/judge_results_base.jsonl`
-- `evaluation/tmp/judge_results_gd1.jsonl`
-- `evaluation/tmp/judge_results_gd2.jsonl`
-
-Judge output format reference:
-
-- `evaluation/templates/judge_results.template.jsonl`
+- `evaluation/tmp/judge_results_base.jsonl`, `judge_results_gd1.jsonl`, `judge_results_gd2.jsonl`
 
 ## Step 6: Aggregate Scores
 
-Combined judge results file:
+### Compare mode (recommended)
+
+Rank scores come from the judge's own ranking — more accurate than post-hoc computation.
 
 ```bash
 .venv/bin/python -m evaluation.aggregate_judge_results \
-   --judge-results evaluation/tmp/judge_results_all_models.jsonl \
-   --judge-packets evaluation/tmp/judge_packets_all_models.jsonl \
+   --compare-results evaluation/tmp/judge_results_compare.jsonl \
    --rubric evaluation/templates/judge_rubric.template.yaml \
    --run-id run-1 \
    --output-dir evaluation/reports/judge/compare/run-1
 ```
 
-Or merge legacy per-model judge result files in one command:
+### Per-model mode (legacy)
+
+Rank scores computed post-hoc from criteria scores.
 
 ```bash
 .venv/bin/python -m evaluation.aggregate_judge_results \
    --judge-results evaluation/tmp/judge_results_base.jsonl \
    --judge-results evaluation/tmp/judge_results_gd1.jsonl \
    --judge-results evaluation/tmp/judge_results_gd2.jsonl \
-   --system-alias rag_gd1=gd1 \
-   --system-alias rag_gd2=gd2 \
    --rubric evaluation/templates/judge_rubric.template.yaml \
    --run-id run-1 \
    --output-dir evaluation/reports/judge/compare/run-1
 ```
 
-Single-model mode is still supported:
+Single-model mode (no ranking):
 
 ```bash
 .venv/bin/python -m evaluation.aggregate_judge_results \

@@ -20,7 +20,7 @@ rubric:
       description: Pinpoints the correct function or location.
     - key: c7_pattern_or_cve_reference
       weight: 2
-      description: References known pattern or CVE-equivalent behavior.
+      description: "Cites a specific, named vulnerability pattern or CVE with enough precision to be verifiable (e.g. names the pattern class, cites a CVE ID, or references a pattern card from the knowledge base). Generic statements like 'this is a buffer overflow' without a named reference score 0.0."
     - key: c8_trigger_and_poc_concept
       weight: 2
       description: Provides trigger strategy and PoC concept.
@@ -31,6 +31,12 @@ rubric:
       weight: 2
       description: Maintains low false positive behavior.
 
+# Scoring scale: each criterion MUST use exactly one of 0.0 / 0.5 / 1.0
+#   0.0 = absent or clearly wrong
+#   0.5 = partial, incomplete, or flawed but directionally correct
+#   1.0 = accurate and complete
+
+# Schema for per-model mode (one packet per case per model)
 judge_output_schema:
   case_id: string
   system_id: string
@@ -47,8 +53,32 @@ judge_output_schema:
     c9_impact_classification: 0.0
     c10_low_false_positive: 0.0
   attack_surface:
-    proposed: 0
-    validated_manual: 0
-    validated_fuzzing: 0
+    proposed: 0  # count of distinct attack vectors proposed by the model
   verdict: "supported|partially_supported|not_supported"
   rationale: string
+
+# Schema for compare mode (one packet per case with all models bundled)
+compare_judge_output_schema:
+  case_id: string
+  run_id: string
+  results:
+    - system_id: string
+      criteria:
+        c1_context_correct: 0.0
+        c2_identify_source: 0.0
+        c3_trace_source_to_sink: 0.0
+        c4_vuln_hypothesis: 0.0
+        c5_root_cause_explanation: 0.0
+        c6_correct_location: 0.0
+        c7_pattern_or_cve_reference: 0.0
+        c8_trigger_and_poc_concept: 0.0
+        c9_impact_classification: 0.0
+        c10_low_false_positive: 0.0
+      attack_surface:
+        proposed: 0  # count of distinct attack vectors proposed by the model
+      verdict: "supported|partially_supported|not_supported"
+      rationale: string
+  ranking:
+    - rank: 1
+      system_id: string
+      rationale: string

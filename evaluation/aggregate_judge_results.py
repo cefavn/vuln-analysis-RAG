@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 from collections import defaultdict
 from pathlib import Path
@@ -115,18 +116,69 @@ def _group_rows_by_system(judge_rows: List[Dict[str, Any]]) -> Dict[str, List[Di
     return {system_id: grouped[system_id] for system_id in sorted(grouped)}
 
 
-def _build_system_ranking(per_system_summary: Dict[str, Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _compute_case_rank_scores(per_system_summary: Dict[str, Dict[str, Any]]) -> Dict[str, float]:
+    """Per-case rank each system by weighted_score; return mean normalized rank score per system.
+
+    Normalized rank: rank-1 (best) → 1.0, rank-n (worst) → 0.0.
+    Ties receive the same (best) rank among tied systems.
+    """
+    n_systems = len(per_system_summary)
+    if n_systems <= 1:
+        return {sid: 0.0 for sid in per_system_summary}
+
+    case_scores: Dict[Tuple[str, str], Dict[str, float]] = defaultdict(dict)
+    for system_id, summary in per_system_summary.items():
+        for case in summary["cases"]:
+            key = (str(case["case_id"]), str(case["run_id"]))
+            case_scores[key][system_id] = float(case["weighted_score"])
+
+    rank_buckets: Dict[str, List[float]] = {sid: [] for sid in per_system_summary}
+
+    for scores_by_system in case_scores.values():
+        sorted_pairs = sorted(scores_by_system.items(), key=lambda x: -x[1])
+        rank_map: Dict[str, int] = {}
+        current_rank = 1
+        for i, (sid, score) in enumerate(sorted_pairs):
+            if i > 0 and score < sorted_pairs[i - 1][1]:
+                current_rank = i + 1
+            rank_map[sid] = current_rank
+
+        for sid, rank in rank_map.items():
+            normalized = (n_systems - rank) / (n_systems - 1)
+            rank_buckets[sid].append(max(0.0, min(1.0, normalized)))
+
+    return {
+        sid: round(mean(scores), 6) if scores else 0.0
+        for sid, scores in rank_buckets.items()
+    }
+
+
+_COMPOSITE_WEIGHT = 0.9  # weight for criteria score vs rank score
+
+
+def _build_system_ranking(
+    per_system_summary: Dict[str, Dict[str, Any]],
+    rank_scores: Dict[str, float],
+) -> List[Dict[str, Any]]:
+    """Build ranking using composite_score = 0.9 * weighted_score_mean + 0.1 * rank_score_mean."""
     ranking: List[Dict[str, Any]] = []
 
     for system_id, summary in per_system_summary.items():
         agg = summary["aggregate"]
+        ws_mean = float(agg["weighted_score_mean"])
+        rs_mean = rank_scores.get(system_id, 0.0)
+        composite = _COMPOSITE_WEIGHT * ws_mean + (1 - _COMPOSITE_WEIGHT) * rs_mean
         ranking.append(
             {
                 "system_id": system_id,
                 "cases": int(agg["cases"]),
-                "weighted_score_mean": float(agg["weighted_score_mean"]),
+                "weighted_score_mean": ws_mean,
                 "weighted_score_median": float(agg["weighted_score_median"]),
                 "weighted_score_mean_percent": float(agg["weighted_score_mean_percent"]),
+                "rank_score_mean": round(rs_mean, 6),
+                "rank_score_mean_percent": round(rs_mean * 100.0, 3),
+                "composite_score": round(composite, 6),
+                "composite_score_percent": round(composite * 100.0, 3),
                 "attack_surface_precision_manual": float(agg["attack_surface_precision_manual"]),
                 "attack_surface_precision_fuzzing": float(agg["attack_surface_precision_fuzzing"]),
             }
@@ -134,7 +186,7 @@ def _build_system_ranking(per_system_summary: Dict[str, Dict[str, Any]]) -> List
 
     ranking.sort(
         key=lambda x: (
-            -x["weighted_score_mean"],
+            -x["composite_score"],
             -x["weighted_score_median"],
             -x["attack_surface_precision_manual"],
             -x["attack_surface_precision_fuzzing"],
@@ -177,12 +229,13 @@ def _attach_ranking_explanations(
 
         if row["rank"] == 1:
             row["explanation"] = (
-                f"Highest weighted mean ({row['weighted_score_mean_percent']:.2f}%) "
+                f"Highest composite score ({row['composite_score_percent']:.2f}%) "
+                f"[criteria: {row['weighted_score_mean_percent']:.2f}%, rank bonus: {row['rank_score_mean_percent']:.2f}%] "
                 f"with strongest criteria: {top_bits}."
             )
             continue
 
-        delta = leader_pct - row["weighted_score_mean_percent"]
+        delta = leader["composite_score_percent"] - row["composite_score_percent"]
         gap_rows: List[Tuple[str, float]] = []
         for key in criteria_order:
             gap = float(leader_criteria[key]["mean"]) - float(criteria_summary[key]["mean"])
@@ -193,11 +246,15 @@ def _attach_ranking_explanations(
         if gap_rows:
             gap_text = ", ".join([f"{k} (-{gap:.3f})" for k, gap in gap_rows[:2]])
             row["explanation"] = (
-                f"Trails rank 1 by {delta:.2f} points; largest criterion gaps: {gap_text}."
+                f"Composite score {row['composite_score_percent']:.2f}% "
+                f"(criteria: {row['weighted_score_mean_percent']:.2f}%, rank bonus: {row['rank_score_mean_percent']:.2f}%); "
+                f"trails rank 1 by {delta:.2f} points; largest criterion gaps: {gap_text}."
             )
         else:
             row["explanation"] = (
-                f"Ties leader on criterion means, ranked lower by tie-breakers "
+                f"Composite score {row['composite_score_percent']:.2f}% "
+                f"(criteria: {row['weighted_score_mean_percent']:.2f}%, rank bonus: {row['rank_score_mean_percent']:.2f}%); "
+                f"ties leader on criterion means, ranked lower by tie-breakers "
                 f"(median/precision/system_id ordering)."
             )
 
@@ -423,13 +480,177 @@ def aggregate_judge_results(judge_rows: List[Dict[str, Any]], rubric: Dict[str, 
     }
 
 
+def _parse_compare_results(
+    paths: List[str],
+) -> Tuple[List[Dict[str, Any]], Dict[Tuple[str, str], Dict[str, float]]]:
+    """Parse compare-mode judge results (one row per case, all models bundled).
+
+    Returns:
+        judge_rows: flat per-system rows compatible with aggregate_judge_results()
+        judge_rank_scores: {(case_id, run_id): {system_id: normalized_rank_score}}
+            normalized: rank-1 → 1.0, rank-n → 0.0
+    """
+    raw_rows: List[Dict[str, Any]] = []
+    for path in paths:
+        raw_rows.extend(read_jsonl(path))
+
+    judge_rows: List[Dict[str, Any]] = []
+    judge_rank_scores: Dict[Tuple[str, str], Dict[str, float]] = {}
+
+    for row in raw_rows:
+        case_id = str(row.get("case_id", "")).strip()
+        run_id = str(row.get("run_id", "run-1")).strip() or "run-1"
+
+        results = row.get("results", [])
+        if not isinstance(results, list) or not results:
+            raise JudgeResultError(f"Case {case_id}: compare result must have non-empty 'results' list")
+
+        # Explode into per-system rows
+        for result in results:
+            system_id = str(result.get("system_id", "")).strip()
+            if not system_id:
+                raise JudgeResultError(f"Case {case_id}: result entry missing system_id")
+            judge_rows.append(
+                {
+                    "case_id": case_id,
+                    "system_id": system_id,
+                    "run_id": run_id,
+                    "criteria": result.get("criteria", {}),
+                    "attack_surface": result.get("attack_surface", {"proposed": 0, "validated_manual": 0, "validated_fuzzing": 0}),
+                    "verdict": result.get("verdict", ""),
+                    "rationale": result.get("rationale", ""),
+                }
+            )
+
+        # Extract judge-provided ranking into normalized scores
+        ranking = row.get("ranking", [])
+        if isinstance(ranking, list) and ranking:
+            n = len(ranking)
+            case_rank_scores: Dict[str, float] = {}
+            for entry in ranking:
+                rank = int(entry.get("rank", 0))
+                sid = str(entry.get("system_id", "")).strip()
+                if sid and n > 1:
+                    case_rank_scores[sid] = max(0.0, (n - rank) / (n - 1))
+                elif sid:
+                    case_rank_scores[sid] = 1.0
+            judge_rank_scores[(case_id, run_id)] = case_rank_scores
+
+    return judge_rows, judge_rank_scores
+
+
+def _rank_scores_from_judge(
+    judge_rank_scores: Dict[Tuple[str, str], Dict[str, float]],
+    per_system_summary: Dict[str, Dict[str, Any]],
+) -> Dict[str, float]:
+    """Aggregate per-case judge rank scores into per-system mean rank score."""
+    rank_buckets: Dict[str, List[float]] = {sid: [] for sid in per_system_summary}
+
+    for (case_id, run_id), scores_by_system in judge_rank_scores.items():
+        for sid, score in scores_by_system.items():
+            if sid in rank_buckets:
+                rank_buckets[sid].append(score)
+
+    return {
+        sid: round(mean(scores), 6) if scores else 0.0
+        for sid, scores in rank_buckets.items()
+    }
+
+
+def _write_markdown_report(
+    out_path: Path,
+    ranking: List[Dict[str, Any]],
+    per_system_summary: Dict[str, Dict[str, Any]],
+    criteria_order: List[str],
+    run_id: str,
+) -> None:
+    ranked_sids = [r["system_id"] for r in ranking]
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    lines: List[str] = []
+
+    lines += [f"# Evaluation Report — {run_id}", f"\nGenerated: {now}  ", ""]
+
+    # --- Final Ranking ---
+    lines += ["## Final Ranking", ""]
+    lines.append(
+        "| Rank | System | Composite Score | Criteria Score | Rank Bonus | Cases |"
+    )
+    lines.append("|:----:|--------|:--------------:|:--------------:|:----------:|:-----:|")
+    for row in ranking:
+        lines.append(
+            f"| {row['rank']} | **{row['system_id']}** "
+            f"| {row['composite_score_percent']:.2f}% "
+            f"| {row['weighted_score_mean_percent']:.2f}% "
+            f"| {row['rank_score_mean_percent']:.2f}% "
+            f"| {row['cases']} |"
+        )
+    lines.append("")
+    for row in ranking:
+        if "explanation" in row:
+            lines.append(f"> **#{row['rank']} {row['system_id']}**: {row['explanation']}  ")
+    lines.append("")
+
+    # --- Criteria Breakdown ---
+    lines += ["## Criteria Breakdown", ""]
+    header = "| Criterion | Weight |" + "".join(f" {sid} |" for sid in ranked_sids)
+    sep = "|-----------|:------:|" + "".join(":------:|" for _ in ranked_sids)
+    lines += [header, sep]
+
+    criteria_summaries = {sid: per_system_summary[sid]["criteria_summary"] for sid in ranked_sids}
+    for c in criteria_order:
+        weight = criteria_summaries[ranked_sids[0]][c]["weight"]
+        scores = "".join(
+            f" {criteria_summaries[sid][c]['mean']:.3f} |" for sid in ranked_sids
+        )
+        lines.append(f"| `{c}` | {weight} |{scores}")
+    lines.append("")
+
+    # --- Per-Case Comparison ---
+    lines += ["## Per-Case Results", ""]
+    header = "| Case |" + "".join(f" {sid} | {sid} verdict |" for sid in ranked_sids) + " Best |"
+    sep = "|------|" + "".join("------:|---------|" for _ in ranked_sids) + "------|"
+    lines += [header, sep]
+
+    by_case: Dict[str, Dict[str, Any]] = defaultdict(dict)
+    for sid in ranked_sids:
+        for case in per_system_summary[sid]["cases"]:
+            by_case[case["case_id"]][sid] = case
+
+    for case_id in sorted(by_case.keys()):
+        row_parts = [f"| `{case_id}` |"]
+        scores: Dict[str, float] = {}
+        for sid in ranked_sids:
+            case = by_case[case_id].get(sid)
+            if case:
+                scores[sid] = case["weighted_score_percent"]
+                row_parts.append(f" {case['weighted_score_percent']:.1f}% | {case['verdict']} |")
+            else:
+                row_parts.append(" — | — |")
+        best = max(scores, key=lambda s: scores[s]) if scores else "—"
+        row_parts.append(f" **{best}** |")
+        lines.append("".join(row_parts))
+
+    lines.append("")
+
+    out_path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Aggregate judge model JSONL outputs")
     parser.add_argument(
         "--judge-results",
-        required=True,
         action="append",
-        help="Judge output JSONL (repeat this flag to merge multiple files)",
+        default=[],
+        help="Per-model judge output JSONL (repeat to merge files). Use with normal packets.",
+    )
+    parser.add_argument(
+        "--compare-results",
+        action="append",
+        default=[],
+        help=(
+            "Compare-mode judge output JSONL (multi-model format from --compare packets). "
+            "Repeat to merge files. Provides judge-ranked rank scores instead of post-hoc computation."
+        ),
     )
     parser.add_argument("--rubric", required=True, help="Rubric YAML")
     parser.add_argument("--system-id", help="System label override (single-system mode)")
@@ -450,7 +671,19 @@ def main() -> None:
     parser.add_argument("--output-dir", required=True, help="Output directory")
     args = parser.parse_args()
 
-    judge_rows = _load_many_judge_rows(args.judge_results)
+    if not args.judge_results and not args.compare_results:
+        raise JudgeResultError("Provide at least one of --judge-results or --compare-results")
+    if args.judge_results and args.compare_results:
+        raise JudgeResultError("Use either --judge-results or --compare-results, not both")
+
+    # Parse inputs — compare mode provides judge-ranked scores; normal mode uses post-hoc ranking
+    judge_rank_scores_from_judge: Dict[Tuple[str, str], Dict[str, float]] = {}
+
+    if args.compare_results:
+        judge_rows, judge_rank_scores_from_judge = _parse_compare_results(args.compare_results)
+    else:
+        judge_rows = _load_many_judge_rows(args.judge_results)
+
     if not judge_rows:
         raise JudgeResultError("No judge rows found")
 
@@ -540,7 +773,15 @@ def main() -> None:
         system_id: aggregate_judge_results(rows, rubric) for system_id, rows in grouped.items()
     }
     criteria_order = [str(c["key"]) for c in rubric["rubric"]["criteria"]]
-    ranking = _build_system_ranking(per_system_summary)
+
+    if judge_rank_scores_from_judge:
+        rank_scores = _rank_scores_from_judge(judge_rank_scores_from_judge, per_system_summary)
+        rank_source = "judge"
+    else:
+        rank_scores = _compute_case_rank_scores(per_system_summary)
+        rank_source = "post_hoc"
+
+    ranking = _build_system_ranking(per_system_summary, rank_scores)
     ranking = _attach_ranking_explanations(ranking, per_system_summary, criteria_order)
     ranked_system_ids = [row["system_id"] for row in ranking]
 
@@ -586,8 +827,10 @@ def main() -> None:
         "rank",
         "system_id",
         "cases",
-        "weighted_score_mean",
+        "composite_score_percent",
         "weighted_score_mean_percent",
+        "rank_score_mean_percent",
+        "weighted_score_mean",
         "weighted_score_median",
         "attack_surface_precision_manual",
         "attack_surface_precision_fuzzing",
@@ -598,8 +841,10 @@ def main() -> None:
             row["rank"],
             row["system_id"],
             row["cases"],
-            row["weighted_score_mean"],
+            row["composite_score_percent"],
             row["weighted_score_mean_percent"],
+            row["rank_score_mean_percent"],
+            row["weighted_score_mean"],
             row["weighted_score_median"],
             row["attack_surface_precision_manual"],
             row["attack_surface_precision_fuzzing"],
@@ -643,7 +888,8 @@ def main() -> None:
             "mode": "multi_system",
             "run_id": args.run_id,
             "systems": ranked_system_ids,
-            "judge_results_paths": args.judge_results,
+            "rank_score_source": rank_source,
+            "judge_results_paths": args.judge_results or args.compare_results,
             "judge_packets_path": args.judge_packets,
             "system_aliases": aliases,
             "rubric_path": args.rubric,
@@ -663,6 +909,7 @@ def main() -> None:
     write_csv(out / "judge_criteria_summary.csv", headers=criteria_headers, rows=criteria_rows)
     write_csv(out / "judge_case_scores.csv", headers=case_headers, rows=case_rows)
     write_csv(out / "judge_case_comparison.csv", headers=case_comparison_headers, rows=case_comparison_rows)
+    _write_markdown_report(out / "judge_report.md", ranking, per_system_summary, criteria_order, args.run_id)
 
     print(
         json.dumps(
@@ -673,7 +920,9 @@ def main() -> None:
                     {
                         "rank": row["rank"],
                         "system_id": row["system_id"],
+                        "composite_score_percent": row["composite_score_percent"],
                         "weighted_score_mean_percent": row["weighted_score_mean_percent"],
+                        "rank_score_mean_percent": row["rank_score_mean_percent"],
                     }
                     for row in ranking
                 ],

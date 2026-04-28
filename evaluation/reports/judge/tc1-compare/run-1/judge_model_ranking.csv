@@ -1,0 +1,4 @@
+rank,system_id,cases,composite_score_percent,weighted_score_mean_percent,rank_score_mean_percent,weighted_score_mean,weighted_score_median,attack_surface_precision_manual,attack_surface_precision_fuzzing,explanation
+1,gd2,3,100.0,100.0,100.0,1.0,1.0,0.0,0.0,"Highest composite score (100.00%) [criteria: 100.00%, rank bonus: 100.00%] with strongest criteria: c3_trace_source_to_sink=1.000, c4_vuln_hypothesis=1.000, c10_low_false_positive=1.000."
+2,base,3,85.619,91.429,33.333,0.914286,0.87619,0.0,0.0,"Composite score 85.62% (criteria: 91.43%, rank bonus: 33.33%); trails rank 1 by 14.38 points; largest criterion gaps: c7_pattern_or_cve_reference (-0.667), c4_vuln_hypothesis (-0.067)."
+3,gd1,3,68.476,72.381,33.333,0.723809,0.952381,0.0,0.0,"Composite score 68.48% (criteria: 72.38%, rank bonus: 33.33%); trails rank 1 by 31.52 points; largest criterion gaps: c7_pattern_or_cve_reference (-0.567), c10_low_false_positive (-0.333)."

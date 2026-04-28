@@ -1,134 +1,216 @@
-# =============================================================================
-# QNX Hypervisor RAG Benchmark - Testcase Set (Evidence-First Template)
-#
-# Design goals:
-# 1) Keep model-facing input neutral (avoid answer leakage).
-# 2) Use only verifiable code excerpts from real upstream versions.
-# 3) Keep ground truth strict and auditable.
-#
-# IMPORTANT:
-# - Fields used by analysis model: prompt, analysis_context, source_code.
-# - ground_truth is for judging only and should never be sent to the analysis model.
-# =============================================================================
-
+# SOURCE: tc2-gemini-pro-3.1
 cases:
   # ---------------------------------------------------------------------------
   # CASE 1 - POSITIVE (real vulnerable code)
-  # CVE-2024-7730, pre-fix QEMU virtio-snd input path
+  # CVE-2015-7504, QEMU pcnet_receive heap buffer overflow
+  # Pattern: Implicit length assumption + appended data = OOB Write
   # ---------------------------------------------------------------------------
-  - case_id: qemu-virtio-snd-rx-001
-    title: "virtio-snd RX callback (pre-fix upstream code)"
-    component: "qemu hw/audio/virtio-snd.c"
+  - case_id: qemu-pcnet-rx-001
+    title: "pcnet_receive loopback handling (pre-fix upstream code)"
+    component: "qemu hw/net/pcnet.c"
     tags:
       - transfer_case
       - qemu
-      - virtio
+      - network_device
       - guest_to_host
       - pre_fix
 
     prompt: >
-      Review the host-side audio input callback and determine whether
-      guest-controlled queue state can lead to unsafe memory write.
-      Identify source, sink, trigger condition, and impact.
+      Review the network packet receive handler. Determine whether guest-provided
+      packet sizes and loopback settings can lead to unsafe memory corruption
+      during payload or CRC processing. Identify source, sink, trigger condition, and impact.
 
     analysis_context: |
       Target binary: qemu-system-*
-      Trust boundary: guest-provided virtqueue descriptors and host audio callback input.
+      Trust boundary: guest-provided network packet size (size_) and device loopback state.
       Scope: only this excerpt.
       Note: do not assume vulnerability by default; decide from code behavior.
 
-    # Verbatim excerpt from qemu v8.2.0, hw/audio/virtio-snd.c
-    # Extracted with:
-    # curl -L -s https://gitlab.com/qemu-project/qemu/-/raw/v8.2.0/hw/audio/virtio-snd.c | nl -ba | sed -n '1260,1320p'
     source_code: |
-      static void virtio_snd_pcm_in_cb(void *data, int available)
+      ssize_t pcnet_receive(NetClientState *nc, const uint8_t *buf, size_t size_)
       {
-          VirtIOSoundPCMStream *stream = data;
-          VirtIOSoundPCMBuffer *buffer;
-          size_t size;
+          int size = size_;
+          PCNetState *s = qemu_get_nic_opaque(nc);
+          uint8_t *src = s->buffer;
 
-          WITH_QEMU_LOCK_GUARD(&stream->queue_mutex) {
-              while (!QSIMPLEQ_EMPTY(&stream->queue)) {
-                  buffer = QSIMPLEQ_FIRST(&stream->queue);
-                  if (!virtio_queue_ready(buffer->vq)) {
-                      return;
-                  }
-                  if (!stream->active) {
-                      return_rx_buffer(stream, buffer);
-                      continue;
-                  }
+          /* ... state checks ... */
 
-                  for (;;) {
-                      size = AUD_read(stream->voice.in,
-                              buffer->data + buffer->size,
-                              MIN(available, (stream->params.period_bytes -
-                                              buffer->size)));
-                      if (!size) {
-                          available = 0;
-                          break;
-                      }
-                      buffer->size += size;
-                      available -= size;
-                      if (buffer->size >= stream->params.period_bytes) {
-                          return_rx_buffer(stream, buffer);
-                          break;
-                      }
-                      if (!available) {
-                          break;
-                      }
-                  }
-                  if (!available) {
-                      break;
-                  }
-              }
+          if (!s->looptest) {
+              memcpy(src, buf, size);
+              /* no need to compute the CRC */
+              src[size] = 0;
+              src[size + 1] = 0;
+              src[size + 2] = 0;
+              src[size + 3] = 0;
+              size += 4;
+          } else if (s->looptest == PCNET_LOOPTEST_CRC ||
+                     !CSR_DXMTFCS(s) || size < MIN_BUF_SIZE+4) {
+              uint32_t fcs = ~0;
+              uint8_t *p = src;
+
+              while (p != &src[size])
+                  CRC(fcs, *p++);
+              *(uint32_t *)p = htonl(fcs);
+              size += 4;
           }
+          
+          pcnet_update_irq(s);
+          return size_;
       }
 
     ground_truth:
       has_vulnerability: true
       vulnerabilities:
-        - vuln_id: CVE-2024-7730
+        - vuln_id: CVE-2015-7504
           vuln_type: buffer_overflow
           severity: HIGH
-          min_impact: "Guest-to-host memory corruption, potential code execution"
+          min_impact: "Guest-to-host heap corruption, denial of service or code execution"
           location_keywords:
-            - virtio_snd_pcm_in_cb
-            - AUD_read
-            - buffer->data
-            - period_bytes
+            - pcnet_receive
+            - fcs
+            - p
+            - CRC
           evidence_keywords:
-            - missing bound check against iov capacity
-            - heap out-of-bounds write
-            - guest-controlled descriptor size edge case
+            - CRC code overwrites beyond buffer
+            - size parameter unbounded at write
+            - heap-based buffer overflow
           source_fields:
-            - buffer->elem->in_sg
-            - buffer->elem->in_num
-            - available
+            - size_
+            - s->looptest
           sink_ops:
-            - AUD_read(stream->voice.in, buffer->data + buffer->size, MIN(...))
+            - "*(uint32_t *)p = htonl(fcs);"
           root_cause: >
-            The callback bounds writes by period_bytes but not by the actual
-            writable capacity derived from the current virtqueue element.
-            Under crafted queue sizing, writes can exceed valid buffer space.
+            When receiving packets in loopback mode, the function appends a 4-byte CRC
+            to the end of the payload. If the guest provides a packet matching the exact 
+            capacity of s->buffer (e.g. 4096 bytes), the pointer 'p' reaches the end of 
+            the buffer, and the subsequent 4-byte CRC write overwrites adjacent heap memory.
           trigger_concept: >
-            Provide RX virtqueue element sizing that leaves no safe payload room
-            while audio callback still writes available bytes.
+            From the guest VM, configure the PCNet card to loopback mode and send a crafted
+            packet where the size matches the exact size of the host-side rx buffer.
 
     references:
-      - "https://nvd.nist.gov/vuln/detail/CVE-2024-7730"
-      - "https://bugzilla.redhat.com/show_bug.cgi?id=2304289"
-      - "http://www.mail-archive.com/qemu-devel@nongnu.org/msg1171029.html"
+      - "https://nvd.nist.gov/vuln/detail/CVE-2015-7504"
+      - "https://bugzilla.redhat.com/show_bug.cgi?id=1261461"
 
     notes: >
-      Provenance: upstream QEMU v8.2.0 pre-fix excerpt. This case is intended
-      as a transfer pattern relevant to virtqueue-based host-side device code.
+      A classic "data appending" overflow. Extremely relevant for hypervisor IVC 
+      components dealing with network or block devices where footers or headers are appended.
 
   # ---------------------------------------------------------------------------
   # CASE 2 - POSITIVE (real vulnerable code)
-  # CVE-2023-6693, pre-fix QEMU virtio-net TX flush path
+  # CVE-2020-14364, QEMU USB Out-of-bounds Read/Write
+  # Pattern: Missing bound check on guest-supplied length field before state transition
   # ---------------------------------------------------------------------------
-  - case_id: qemu-virtio-net-tx-002
-    title: "virtio-net TX header handling (pre-fix upstream code)"
+  - case_id: qemu-usb-setup-001
+    title: "USB do_token_setup parameter parsing (pre-fix upstream code)"
+    component: "qemu hw/usb/core.c"
+    tags:
+      - transfer_case
+      - qemu
+      - usb_device
+      - guest_to_host
+      - pre_fix
+
+    prompt: >
+      Analyze the USB token setup parser. Evaluate if guest-supplied setup parameters
+      are adequately validated before they are saved to the device state and used in
+      subsequent operations.
+
+    analysis_context: |
+      Target binary: qemu-system-*
+      Trust boundary: guest-provided USB setup packet (p->iov) mapped to s->setup_buf.
+      Scope: only this excerpt.
+      Note: s->data_buf is a fixed-size array in the USBDevice struct.
+
+    source_code: |
+      static void do_token_setup(USBDevice *s, USBPacket *p)
+      {
+          int request, value, index;
+
+          if (p->iov.size != 8) {
+              p->status = USB_RET_STALL;
+              return;
+          }
+
+          usb_packet_copy(p, s->setup_buf, p->iov.size);
+          s->setup_index = 0;
+          p->actual_length = 0;
+          
+          s->setup_len = (s->setup_buf[7] << 8) | s->setup_buf[6];
+          s->setup_state = SETUP_STATE_DATA;
+
+          request = (s->setup_buf[0] << 8) | s->setup_buf[1];
+          value   = (s->setup_buf[3] << 8) | s->setup_buf[2];
+          index   = (s->setup_buf[5] << 8) | s->setup_buf[4];
+
+          if (s->setup_buf[0] & USB_DIR_IN) {
+              usb_device_handle_control(s, p, request, value, index,
+                                        s->setup_len, s->data_buf);
+              if (p->status == USB_RET_ASYNC) {
+                  s->setup_state = SETUP_STATE_SETUP;
+              }
+              if (p->status != USB_RET_SUCCESS) {
+                  return;
+              }
+              if (p->actual_length < s->setup_len) {
+                  s->setup_len = p->actual_length;
+              }
+              s->setup_state = SETUP_STATE_DATA;
+          } else {
+              if (s->setup_len == 0) {
+                  s->setup_state = SETUP_STATE_ACK;
+              } else {
+                  s->setup_state = SETUP_STATE_DATA;
+              }
+          }
+          p->actual_length = 8;
+      }
+
+    ground_truth:
+      has_vulnerability: true
+      vulnerabilities:
+        - vuln_id: CVE-2020-14364
+          vuln_type: out_of_bounds_read_write
+          severity: HIGH
+          min_impact: "Guest-to-host VM escape, arbitrary read/write"
+          location_keywords:
+            - do_token_setup
+            - s->setup_len
+            - setup_buf
+          evidence_keywords:
+            - unvalidated length
+            - out-of-bounds read/write
+            - missing bounds check against data_buf
+          source_fields:
+            - s->setup_buf[6]
+            - s->setup_buf[7]
+          sink_ops:
+            - "s->setup_len = (s->setup_buf[7] << 8) | s->setup_buf[6];"
+            - "Secondary sink: used downstream by usb_device_handle_control / usb_packet_copy"
+          root_cause: >
+            The function extracts the transfer length (setup_len) directly from the guest-supplied 
+            setup buffer (setup_buf[6] and [7]) and stores it in the device state without 
+            validating it against the maximum capacity of s->data_buf. Later operations use 
+            this poisoned state variable to copy data, leading to severe OOB memory access.
+          trigger_concept: >
+            Craft a USB setup packet where the length field exceeds the size of the host's 
+            internal data_buf, then initiate a data phase transfer.
+
+    references:
+      - "https://nvd.nist.gov/vuln/detail/CVE-2020-14364"
+
+    notes: >
+      This tests the model's ability to track "Secondary Sinks" (State Propagation). 
+      The primary vulnerability isn't a crash inside this function, but the assignment 
+      of unvalidated guest data to a state variable (s->setup_len) that poisons downstream logic.
+
+  # ---------------------------------------------------------------------------
+  # CASE 3 - POSITIVE (real vulnerable code)
+  # CVE-2024-6505, QEMU virtio-net software RSS index OOB
+  # Pattern: Array index out-of-bounds via unvalidated virtqueue configuration
+  # ---------------------------------------------------------------------------
+  - case_id: qemu-virtio-net-rss-001
+    title: "virtio-net RSS table configuration (pre-fix upstream code)"
     component: "qemu hw/net/virtio-net.c"
     tags:
       - transfer_case
@@ -138,208 +220,220 @@ cases:
       - pre_fix
 
     prompt: >
-      Analyze whether guest-influenced header length can overflow a host stack
-      object during TX processing. Report source, sink, and any confidentiality
-      or integrity impact.
+      Review the function handling the Receive Side Scaling (RSS) configuration
+      supplied by the guest via the virtio control queue. Identify if any memory
+      corruption can occur during the setup of the internal RSS tables.
 
     analysis_context: |
       Target binary: qemu-system-*
-      Trust boundary: guest-negotiated features and guest TX descriptors.
+      Trust boundary: The 'mac_data' struct is populated directly from a guest virtqueue element.
       Scope: only this excerpt.
-      Note: do not assume vulnerability by default; decide from code behavior.
+      Note: n->rss_data.indirections_table is a fixed-size array bounded by VIRTIO_NET_RSS_MAX_TABLE_LEN (128).
 
-    # Verbatim excerpts from qemu v8.2.0, hw/net/virtio-net.c
-    # Source selection:
-    # - guest header size setup (line region around 670)
-    # - vulnerable TX flush copy path (line region around 2690)
     source_code: |
-      static void virtio_net_set_mrg_rx_bufs(VirtIONet *n, int mergeable_rx_bufs,
-                         int version_1, int hash_report)
+      static uint16_t virtio_net_handle_rss(VirtIONet *n,
+                                            struct virtio_net_ctrl_rss *mac_data)
       {
-        n->mergeable_rx_bufs = mergeable_rx_bufs;
+          uint16_t queues = le16_to_cpu(mac_data->queues);
+          uint16_t indirection_table_mask = le16_to_cpu(mac_data->indirection_table_mask);
+          uint16_t i;
 
-        if (version_1) {
-          n->guest_hdr_len = hash_report ?
-            sizeof(struct virtio_net_hdr_v1_hash) :
-            sizeof(struct virtio_net_hdr_mrg_rxbuf);
-          n->rss_data.populate_hash = !!hash_report;
-        } else {
-          n->guest_hdr_len = n->mergeable_rx_bufs ?
-            sizeof(struct virtio_net_hdr_mrg_rxbuf) :
-            sizeof(struct virtio_net_hdr);
-        }
-      }
-
-      static int32_t virtio_net_flush_tx(VirtIONetQueue *q)
-      {
-        for (;;) {
-          ssize_t ret;
-          unsigned int out_num;
-          struct iovec sg[VIRTQUEUE_MAX_SIZE], sg2[VIRTQUEUE_MAX_SIZE + 1], *out_sg;
-          struct virtio_net_hdr_mrg_rxbuf mhdr;
-
-          elem = virtqueue_pop(q->tx_vq, sizeof(VirtQueueElement));
-          if (!elem) {
-            break;
+          if (!n->rss_data.supported) {
+              return VIRTIO_NET_ERR;
           }
 
-          out_num = elem->out_num;
-          out_sg = elem->out_sg;
-          if (out_num < 1) {
-            virtio_error(vdev, "virtio-net header not in first element");
-            virtqueue_detach_element(q->tx_vq, elem, 0);
-            g_free(elem);
-            return -EINVAL;
+          n->rss_data.indirections_len = indirection_table_mask + 1;
+          for (i = 0; i < n->rss_data.indirections_len; i++) {
+              n->rss_data.indirections_table[i] =
+                  le16_to_cpu(mac_data->indirection_table[i]);
           }
 
-          if (n->has_vnet_hdr) {
-            if (iov_to_buf(out_sg, out_num, 0, &mhdr, n->guest_hdr_len) <
-              n->guest_hdr_len) {
-              virtio_error(vdev, "virtio-net header incorrect");
-              virtqueue_detach_element(q->tx_vq, elem, 0);
-              g_free(elem);
-              return -EINVAL;
-            }
-            if (n->needs_vnet_hdr_swap) {
-              virtio_net_hdr_swap(vdev, (void *) &mhdr);
-              sg2[0].iov_base = &mhdr;
-              sg2[0].iov_len = n->guest_hdr_len;
-              out_num = iov_copy(&sg2[1], ARRAY_SIZE(sg2) - 1,
-                       out_sg, out_num,
-                       n->guest_hdr_len, -1);
-              if (out_num == VIRTQUEUE_MAX_SIZE) {
-                goto drop;
-              }
-              out_num += 1;
-              out_sg = sg2;
-            }
-          }
-        }
+          n->rss_data.hash_types = le32_to_cpu(mac_data->hash_types);
+          
+          /* ... other processing ... */
+          return VIRTIO_NET_OK;
       }
 
     ground_truth:
       has_vulnerability: true
       vulnerabilities:
-        - vuln_id: CVE-2023-6693
-          vuln_type: buffer_overflow
-          severity: MEDIUM
-          min_impact: "Stack corruption and potential information leak"
+        - vuln_id: CVE-2024-6505
+          vuln_type: out_of_bounds_write
+          severity: HIGH
+          min_impact: "Guest-to-host heap out-of-bounds write, denial of service"
           location_keywords:
-            - virtio_net_flush_tx
-            - iov_to_buf
-            - mhdr
-            - guest_hdr_len
+            - virtio_net_handle_rss
+            - indirections_table
+            - indirection_table_mask
           evidence_keywords:
-            - stack-based overflow
-            - undersized local header buffer
-            - hash_report feature path
+            - missing upper-bound check
+            - array index out of bounds
+            - fixed-size array overflow
           source_fields:
-            - n->guest_hdr_len
-            - out_sg
+            - mac_data->indirection_table_mask
+            - mac_data->indirection_table
           sink_ops:
-            - iov_to_buf(out_sg, out_num, 0, &mhdr, n->guest_hdr_len)
-            - sg2[0].iov_len = n->guest_hdr_len
+            - "n->rss_data.indirections_table[i] = le16_to_cpu(...);"
           root_cause: >
-            In the HASH_REPORT path, guest_hdr_len may exceed
-            sizeof(virtio_net_hdr_mrg_rxbuf), but data is copied into mhdr.
+            The guest provides 'indirection_table_mask' via the control queue, which determines 
+            how many elements are written into the host's 'indirections_table' array. The code 
+            fails to validate that 'indirection_table_mask + 1' is less than or equal to the 
+            fixed capacity (VIRTIO_NET_RSS_MAX_TABLE_LEN), leading to an OOB write.
           trigger_concept: >
-            Negotiate feature combination so guest_hdr_len resolves to
-            virtio_net_hdr_v1_hash size and trigger TX flush.
+            Enable RSS on the virtio-net interface from the guest, and submit a control command 
+            with an excessively large 'indirection_table_mask' (e.g., 65535) to overwrite adjacent heap.
 
     references:
-      - "https://nvd.nist.gov/vuln/detail/CVE-2023-6693"
-      - "https://bugzilla.redhat.com/show_bug.cgi?id=2254580"
-      - "https://lists.nongnu.org/archive/html/qemu-devel/2024-01/msg00045.html"
+      - "https://nvd.nist.gov/vuln/detail/CVE-2024-6505"
+      - "https://www.sentinelone.com/vulnerability-database/cve-2024-6505/"
 
     notes: >
-      Provenance: upstream QEMU v8.2.0 pre-fix excerpt. Fixed release switched
-      local buffer type to virtio_net_hdr_v1_hash.
+      A quintessential "virtqueue struct parsing" vulnerability. Tests if the model can
+      cross-reference the provided context (fixed array size 128) with the unbounded 
+      guest input (uint16_t mask + 1).
 
   # ---------------------------------------------------------------------------
-  # CASE 3 - NEGATIVE (real fixed code)
-  # Post-fix variant of CVE-2024-7730 path in QEMU v9.1.0
+  # CASE 4 - QNX IVC Transfer Pattern (Logic/Index Validation)
+  # Based on CVE-2024-53022 mechanisms
   # ---------------------------------------------------------------------------
-  - case_id: qemu-virtio-snd-rx-003
-    title: "virtio-snd RX callback (post-fix upstream code)"
-    component: "qemu hw/audio/virtio-snd.c"
+  - case_id: qnx-ivc-shmem-004
+    title: "QNX-style Shared Memory Packet Processing"
+    component: "ivc-service/shmem_handler.c"
     tags:
-      - transfer_case
-      - qemu
-      - virtio
+      - qnx_pattern
+      - ivc
+      - shared_memory
       - guest_to_host
-      - post_fix
-      - negative_control
 
     prompt: >
-      Evaluate whether this revised callback path still permits an out-of-bounds
-      write under adversarial virtqueue sizing.
+      Evaluate the shared memory message handler. Determine if a malicious guest 
+      can corrupt host memory by manipulating the message header fields within 
+      the shared memory region. Identify the root cause and potential impact.
 
     analysis_context: |
-      Target binary: qemu-system-*
-      Trust boundary: guest-provided virtqueue descriptors and host audio callback input.
-      Scope: only this excerpt.
-      Note: this is a fixed-version candidate and should be judged by code behavior.
+      Target: Primary VM (Host) service handling Guest requests.
+      Boundary: Mapping at 'shmem_ptr' is accessible by both Guest and Host.
+      Constraint: The Guest can modify 'shmem_ptr' content at any time.
 
-    # Verbatim excerpt from qemu v9.1.0, hw/audio/virtio-snd.c
-    # Extracted with:
-    # curl -L -s https://gitlab.com/qemu-project/qemu/-/raw/v9.1.0/hw/audio/virtio-snd.c | nl -ba | sed -n '1258,1325p'
     source_code: |
-      static void virtio_snd_pcm_in_cb(void *data, int available)
+      typedef struct {
+          uint32_t msg_count;
+          uint32_t write_ptr;
+          uint32_t read_ptr;
+          uint8_t  payload[4096];
+      } ivc_ring_t;
+
+      int process_guest_msg(ivc_ring_t *shmem_ptr, uint8_t *local_buffer) 
       {
-          VirtIOSoundPCMStream *stream = data;
-          VirtIOSoundPCMBuffer *buffer;
-          size_t size, max_size;
+          uint32_t msg_len;
+          uint32_t current_offset;
 
-          WITH_QEMU_LOCK_GUARD(&stream->queue_mutex) {
-              while (!QSIMPLEQ_EMPTY(&stream->queue)) {
-                  buffer = QSIMPLEQ_FIRST(&stream->queue);
-                  if (!virtio_queue_ready(buffer->vq)) {
-                      return;
-                  }
-                  if (!stream->active) {
-                      return_rx_buffer(stream, buffer);
-                      continue;
-                  }
+          if (shmem_ptr->msg_count == 0) return -1;
 
-                  max_size = iov_size(buffer->elem->in_sg, buffer->elem->in_num);
-                  for (;;) {
-                      if (buffer->size >= max_size) {
-                          return_rx_buffer(stream, buffer);
-                          break;
-                      }
-                      size = AUD_read(stream->voice.in,
-                              buffer->data + buffer->size,
-                              MIN(available, (stream->params.period_bytes -
-                                              buffer->size)));
-                      if (!size) {
-                          available = 0;
-                          break;
-                      }
-                      buffer->size += size;
-                      available -= size;
-                      if (buffer->size >= stream->params.period_bytes) {
-                          return_rx_buffer(stream, buffer);
-                          break;
-                      }
-                      if (!available) {
-                          break;
-                      }
-                  }
-                  if (!available) {
-                      break;
-                  }
-              }
+          // Fetch message metadata
+          current_offset = shmem_ptr->read_ptr;
+          msg_len = *(uint32_t *)(shmem_ptr->payload + current_offset);
+
+          // Security check: ensure message fits in local buffer
+          if (msg_len > 512) {
+              return -EINVAL;
           }
+
+          // Copying message to host-local buffer for processing
+          memcpy(local_buffer, shmem_ptr->payload + current_offset + 4, msg_len);
+          
+          shmem_ptr->read_ptr += (msg_len + 4);
+          shmem_ptr->msg_count--;
+
+          return 0;
       }
 
     ground_truth:
-      has_vulnerability: false
-      vulnerabilities: []
+      has_vulnerability: true
+      vulnerabilities:
+        - vuln_id: CVE-2024-53022-pattern
+          vuln_type: double_fetch / memory_corruption
+          severity: HIGH
+          min_impact: "Host memory corruption, potential VM Escape"
+          root_cause: >
+            1) Double Fetch: 'shmem_ptr->read_ptr' is fetched from shared memory but not 
+            validated against payload bounds before use as an offset.
+            2) Lack of Bound Check: 'current_offset' can be manipulated by the guest to 
+            point near the end of 'payload', causing 'shmem_ptr->payload + current_offset' 
+            to point to out-of-bounds host memory.
+          trigger_concept: >
+            Guest sets 'read_ptr' to a large value (e.g., 4090). When host reads 'msg_len', 
+            it reads past the 'payload' array.
 
-    references:
-      - "https://nvd.nist.gov/vuln/detail/CVE-2024-7730"
-      - "http://www.mail-archive.com/qemu-devel@nongnu.org/msg1171029.html"
+  # ---------------------------------------------------------------------------
+  # CASE 6 - QEMU VirtIO-GPU (Out-of-bounds Write)
+  # CVE-2021-3544 pre-fix code
+  # ---------------------------------------------------------------------------
+  - case_id: qemu-virtio-gpu-006
+    title: "virtio-gpu 2D resource creation"
+    component: "hw/display/virtio-gpu.c"
+    tags:
+      - qemu
+      - virtio-gpu
+      - oob_write
+      - guest_to_host
 
-    notes: >
-      Provenance: upstream QEMU v9.1.0 fixed excerpt. Added max_size-based guard
-      closes the vulnerable write condition from the pre-fix path.
+    prompt: >
+      Analyze the resource creation handler. Does it properly validate dimensions 
+      and offsets before memory operations? Identify any potential for 
+      Out-of-Bounds (OOB) access.
+
+    analysis_context: |
+      Target: virtio_gpu_resource_create_2d
+      Trust boundary: guest-provided 'c2d' command structure.
+
+    source_code: |
+      static void virtio_gpu_resource_create_2d(VirtIOGPU *g,
+                                               struct virtio_gpu_ctrl_command *cmd)
+      {
+          struct virtio_gpu_resource_create_2d c2d;
+          struct virtio_gpu_simple_resource *res;
+
+          VIRTIO_GPU_FILL_CMD(c2d);
+
+          if (c2d.resource_id == 0 ||
+              virtio_gpu_find_resource(g, c2d.resource_id)) {
+              cmd->error = VIRTIO_GPU_RESP_ERR_INVALID_RESOURCE_ID;
+              return;
+          }
+
+          res = g_new0(struct virtio_gpu_simple_resource, 1);
+          res->width = c2d.width;
+          res->height = c2d.height;
+          res->format = c2d.format;
+          res->resource_id = c2d.resource_id;
+
+          // Missing validation for width/height vs memory limits
+          uint32_t bpp = virtio_gpu_get_bpp(res->format);
+          res->image = pixman_image_create_bits(res->format, res->width, res->height,
+                                               NULL, 0);
+          
+          if (!res->image) {
+              g_free(res);
+              cmd->error = VIRTIO_GPU_RESP_ERR_OUT_OF_MEMORY;
+              return;
+          }
+
+          QTAILQ_INSERT_HEAD(&g->reslist, res, next);
+      }
+
+    ground_truth:
+      has_vulnerability: true
+      vulnerabilities:
+        - vuln_id: CVE-2021-3544
+          vuln_type: out_of_bounds_write / resource_exhaustion
+          severity: MEDIUM
+          min_impact: "Host DoS, potential memory corruption in pixman"
+          root_cause: >
+            The function fails to validate 'c2d.width' and 'c2d.height'. Extremely 
+            large values can lead to integer overflows in 'pixman' or allocate 
+            massive amounts of host memory, leading to a Denial of Service. 
+            Furthermore, subsequent transfer operations using these unvalidated 
+            dimensions can result in OOB writes.
+          trigger_concept: >
+            Guest sends a CREATE_2D command with width/height set to 0xFFFF.
