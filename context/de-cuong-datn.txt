@@ -1,0 +1,46 @@
+THÔNG TIN ĐỀ TÀI
+GIAI ĐOẠN 1 (GĐ1): ĐỀ CƯƠNG LUẬN VĂN/ ĐỒ ÁN CHUYÊN NGÀNH/
+ĐỒ ÁN MÔN HỌC KHOA HỌC MÁY TÍNH
+HỌC KỲ 251 NĂM HỌC 2025-2026
+
+
+Tên đề tài:
+Tiếng Việt: “Phân tích An ninh Giao tiếp Liên Máy ảo trên QNX Hypervisor được Tăng cường bởi Trí tuệ Nhân tạo”
+Tiếng Anh: “AI-Augmented Security Analysis of Inter-Virtual Machine Communication on the QNX Hypervisor”
+
+GIAI ĐOẠN 1 (ĐCLV/ ĐACN/ ĐAKTMT):
+Mô tả: Trong bối cảnh các hệ thống nhúng phức tạp như “Xe định nghĩa bằng Phần mềm” (Software-Defined Vehicle - SDV), các hypervisor thời gian thực (RTOS hypervisor) như QNX đóng vai trò nền tảng, cho phép hợp nhất nhiều hệ điều hành trên cùng một vi xử lý. Tuy nhiên, các kênh giao tiếp liên máy ảo (Inter-VM Communication - IVC), đặc biệt là các cơ chế dựa trên chuẩn VirtIO, tạo ra một bề mặt tấn công tiềm tàng cho các cuộc tấn công leo thang đặc quyền. Việc phân tích an ninh các hệ thống này gặp thách thức lớn do chúng thường được phân phối dưới dạng nhị phân đã lược bỏ thông tin (stripped binary), khiến quá trình kỹ thuật dịch ngược (reverse engineering) trở nên cực kỳ tốn thời gian [1, 2].  
+Đề tài này đề xuất một phương pháp tiếp cận mới: kết hợp kỹ thuật dịch ngược truyền thống với một bộ công cụ phân tích được tăng cường bởi các Mô hình Ngôn ngữ Lớn (LLM). Để phòng ngừa rủi ro khi chưa có, hoặc không còn sự hỗ trợ trực tiếp từ BGSV, đề tài sẽ (tạm) tập trung vào việc tận dụng các tài nguyên công khai, bao gồm phiên bản dùng thử của QNX Software Development Platform (SDP) và thực hiện toàn bộ nghiên cứu trong một môi trường giả lập bằng QEMU. Mục tiêu của giai đoạn đầu là xây dựng một sản phẩm mẫu (prototype) là bộ công cụ tích hợp LLM vào trình dịch ngược (IDA Pro/Ghidra) để bán tự động hóa việc chú giải ngữ nghĩa mã assembly, từ đó tạo nền tảng vững chắc cho việc khám phá lỗ hổng ở giai đoạn sau.
+Nhiệm vụ (yêu cầu về nội dung và số liệu ban đầu):
+Nghiên cứu Tổng quan và Thiết lập Môi trường Giả lập:
+Đăng ký và tải về bộ QNX Software Development Platform (SDP) 7.1 bản dùng thử để có được các tệp nhị phân cần thiết và bộ công cụ phát triển.
+Cài đặt và cấu hình trình giả lập QEMU để chạy một máy ảo QNX Hypervisor hoàn chỉnh trên môi trường x86_64, dựa trên các hướng dẫn công khai từ QNX.
+Tự nghiên cứu và tổng hợp tài liệu kiến trúc QNX từ các nguồn công khai (QNX Developer Portal), tập trung vào: (1) Kiến trúc microkernel của QNX Neutrino; (2) Vai trò của tiến trình qvm và các thiết bị ảo (vdevs) ; (3) Chuẩn giao tiếp VirtIO [1,2].  
+Nghiên cứu các công trình khoa học tiên phong về ứng dụng LLM trong kỹ thuật dịch ngược [5].  
+Phân tích Tĩnh và Định danh Bề mặt Tấn công:
+Trích xuất các tệp nhị phân cốt lõi (ví dụ: qvm, vdev-virtio-net.so, vdev-virtio-blk.so) từ bộ QNX SDP đã tải về.  
+Sử dụng IDA Pro/Ghidra để thực hiện phân tích tĩnh, định danh và lập bản đồ các hàm, cấu trúc dữ liệu chính liên quan đến việc khởi tạo máy ảo và xử lý các kênh giao tiếp VirtIO [1, 2].
+Phát triển Bộ công cụ Phân tích Tăng cường bởi AI:
+Phát triển các kịch bản (script) bằng Python cho IDA Pro hoặc Java/Python cho Ghidra.  
+Các script này sẽ tự động hóa quy trình: (a) trích xuất mã assembly của một hàm, (b) xây dựng một prompt hiệu quả thông qua kỹ thuật prompt engineering, (c) gọi đến API của một LLM mạnh có sẵn (ví dụ: GPT-4, Llama 3), và (d) phân tích cú pháp câu trả lời để tự động thêm chú thích vào disassembly listing.
+Tổng hợp và Viết báo cáo ĐACN:
+Viết báo cáo ĐACN trình bày chi tiết kết quả nghiên cứu tổng quan, quá trình thiết lập môi trường giả lập, phân tích kiến trúc hệ thống, và thiết kế bộ công cụ AI.
+Chuẩn bị một bản demo ngắn gọn, trình diễn khả năng của công cụ trên một hàm assembly mẫu trích từ tệp nhị phân của QNX.
+
+—------------------------------- 
+GIAI ĐOẠN 2 (LVTN/ ĐATN): 
+Mô tả: Kế thừa các kết quả từ GĐ1, giai đoạn này chuyển trọng tâm từ phát triển công cụ sang ứng dụng thực tiễn để tìm kiếm và chứng minh sự tồn tại của lỗ hổng an ninh trong môi trường QNX Hypervisor giả lập trên QEMU. Hệ thống sẽ được phân tích sâu hơn ở cấp độ luồng dữ liệu, từ đó hình thành các giả thuyết tấn công và kiểm chứng chúng. Thành công của giai đoạn này được đo bằng việc phát triển một mã khai thác minh chứng (Proof-of-Concept - PoC) hoạt động trong môi trường giả lập, chứng minh được tác động thực tế của lỗ hổng, và một bản báo cáo luận văn hoàn chỉnh, có chiều sâu khoa học.
+Nhiệm vụ (yêu cầu về nội dung và số liệu ban đầu):
+Phân tích Luồng Dữ liệu và Hình thành Giả thuyết Lỗ hổng:
+Sử dụng bộ công cụ AI đã phát triển để phân tích sâu luồng dữ liệu và luồng điều khiển của một kênh IVC cụ thể (ví dụ: virtio-net) trong môi trường QEMU.
+Dựa trên sự hiểu biết về luồng xử lý và các mẫu lỗ hổng đã biết, đưa ra các giả thuyết lỗ hổng cụ thể (ví dụ: "Tràn số nguyên trong quá trình tính toán kích thước buffer của virtqueue", "Thiếu kiểm tra điều kiện biên khi sao chép dữ liệu từ guest vào host").
+Phát triển Fuzzer Mục tiêu và Kiểm chứng Lỗ hổng:
+Thiết kế và phát triển một fuzzer có mục tiêu, chạy trên máy ảo khách (guest VM) trong QEMU. Fuzzer này sẽ tạo ra các gói dữ liệu IVC bị biến dạng (malformed) dựa trên các giả thuyết và gửi chúng đến tiến trình qvm trên máy chủ (host VM).
+Thiết lập môi trường gỡ lỗi từ xa (remote debugging) với GDB trên QEMU để bắt và phân tích các trường hợp crash của tiến trình qvm, từ đó xác định nguyên nhân gốc rễ và xác nhận lỗ hổng.
+Phát triển Mã khai thác Minh chứng (PoC):
+Nếu một lỗ hổng nghiêm trọng được xác nhận, tập trung vào việc phát triển một PoC để chứng minh tác động của nó trong môi trường giả lập. Mục tiêu của PoC có thể là:
+Tấn công Từ chối Dịch vụ (Denial of Service): Gây crash tiến trình qvm, làm tê liệt các máy ảo khác.
+Rò rỉ Thông tin (Information Leak): Đọc một phần bộ nhớ của host VM hoặc của một guest VM khác.
+Đánh giá và Viết Luận văn Tốt nghiệp:
+Đánh giá toàn diện kết quả dự án: (1) Đánh giá hiệu quả của bộ công cụ AI trong việc giảm thời gian phân tích; (2) Phân tích chi tiết về lỗ hổng đã tìm thấy và tác động của nó trong môi trường giả lập.
+Viết báo cáo ĐATN hoàn chỉnh, tổng hợp tất cả các kết quả từ GĐ1 và GĐ2, trình bày một cách logic, khoa học và có bằng chứng rõ ràng.

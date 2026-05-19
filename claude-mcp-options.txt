@@ -1,0 +1,31 @@
+For the host machine's claude_desktop_config.json
+pip install ida-pro-mcp
+Then use:
+
+{
+  "mcpServers": {
+    "ida-pro-mcp": {
+      "command": "/home/mbelin/datn/vuln-analysis-RAG/.venv/bin/python3",
+      "args": [
+        "/home/mbelin/datn/vuln-analysis-RAG/.venv/lib64/python3.12/site-packages/ida_pro_mcp/server.py",
+        "--ida-rpc", "http://192.168.28.133:13337"
+      ],
+      "timeout": 1800,
+      "disabled": false
+    }
+  }
+}
+
+This uses the plugin's HTTP endpoint directly (which we already fixed to be MCP-compliant).
+
+
+
+"rag-knowledge-gd1": {
+  "command": "/home/mbelin/datn/vuln-analysis-RAG/RAG-gd1/run_mcp_in_docker.sh"
+}
+	"rag-knowledge-gd2": {
+	  "command": "/home/mbelin/datn/vuln-analysis-RAG/run_mcp_in_docker.sh",
+	  "env": {
+	    "RETRIEVAL_MIN_SCORE": "0.65"
+	  }
+	}
